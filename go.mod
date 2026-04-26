@@ -8,6 +8,8 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stellar/go-stellar-sdk v0.5.0
+	golang.org/x/crypto v0.45.0
+	golang.org/x/term v0.37.0
 )
 
 require (
