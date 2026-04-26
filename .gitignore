@@ -1,0 +1,16 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Local binaries and release artifacts
+/nb
+/nbtui
+/dist/
+
+# Go build/test output
+*.test
+*.out
+coverage.*
+
+# Temporary files
+tmp/
