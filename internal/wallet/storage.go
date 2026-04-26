@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -54,6 +55,14 @@ func (s *Storage) ConfigPath() string {
 	return filepath.Join(s.baseDir, configFileName)
 }
 
+func (s *Storage) ActiveWalletPath() (string, error) {
+	walletData, err := s.LoadWallet()
+	if err != nil {
+		return "", err
+	}
+	return walletData.SecretPath, nil
+}
+
 func (s *Storage) Ensure() error {
 	if err := os.MkdirAll(s.baseDir, 0o700); err != nil {
 		return err
@@ -91,8 +100,10 @@ func (s *Storage) SaveWallet(secret string) (Wallet, error) {
 	}
 
 	walletData := Wallet{
-		Address: full.Address(),
-		Secret:  full.Seed(),
+		Address:    full.Address(),
+		Secret:     full.Seed(),
+		SecretPath: s.WalletPath(full.Address()),
+		Active:     true,
 	}
 
 	if err := s.Ensure(); err != nil {
@@ -166,6 +177,14 @@ func (s *Storage) ListWallets() ([]Wallet, error) {
 	}
 
 	wallets := make([]Wallet, 0, len(entries))
+	activeAddress := ""
+	cfg, err := s.loadConfig()
+	if err == nil {
+		activeAddress = cfg.ActiveWallet
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) && !errors.Is(err, ErrCorruptWallet) {
+		return nil, err
+	}
+
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".secret") {
 			continue
@@ -176,12 +195,14 @@ func (s *Storage) ListWallets() ([]Wallet, error) {
 		if err != nil {
 			return nil, err
 		}
+		walletData.Active = walletData.Address == activeAddress
 		wallets = append(wallets, walletData)
 	}
 
 	if len(wallets) == 0 {
 		legacyWallet, err := s.loadLegacyWallet()
 		if err == nil {
+			legacyWallet.Active = true
 			return []Wallet{legacyWallet}, nil
 		}
 		if errors.Is(err, ErrWalletNotFound) {
@@ -189,6 +210,13 @@ func (s *Storage) ListWallets() ([]Wallet, error) {
 		}
 		return nil, err
 	}
+
+	sort.Slice(wallets, func(i, j int) bool {
+		if wallets[i].Active != wallets[j].Active {
+			return wallets[i].Active
+		}
+		return wallets[i].Address < wallets[j].Address
+	})
 
 	return wallets, nil
 }
@@ -240,8 +268,9 @@ func (s *Storage) loadWalletByAddress(address string) (Wallet, error) {
 	}
 
 	return Wallet{
-		Address: full.Address(),
-		Secret:  full.Seed(),
+		Address:    full.Address(),
+		Secret:     full.Seed(),
+		SecretPath: s.WalletPath(full.Address()),
 	}, nil
 }
 
@@ -265,8 +294,10 @@ func (s *Storage) loadLegacyWallet() (Wallet, error) {
 	}
 
 	return Wallet{
-		Address: full.Address(),
-		Secret:  full.Seed(),
+		Address:    full.Address(),
+		Secret:     full.Seed(),
+		SecretPath: s.SecretPath(),
+		Active:     true,
 	}, nil
 }
 

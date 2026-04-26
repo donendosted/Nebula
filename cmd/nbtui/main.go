@@ -20,6 +20,7 @@ const (
 	modeSend     viewMode = "send"
 	modeHistory  viewMode = "history"
 	modeSettings viewMode = "settings"
+	modeWallets  viewMode = "wallets"
 )
 
 type walletLoadedMsg struct {
@@ -47,21 +48,34 @@ type networkChangedMsg struct {
 	err     error
 }
 
+type walletListLoadedMsg struct {
+	items []wallet.Wallet
+	err   error
+}
+
+type walletSwitchedMsg struct {
+	wallet wallet.Wallet
+	err    error
+}
+
 type model struct {
 	service *wallet.Service
 	mode    viewMode
 
 	info       wallet.AccountInfo
 	history    []wallet.HistoryEntry
+	wallets    []wallet.Wallet
 	network    wallet.Network
 	loading    bool
 	status     string
 	errMessage string
+	walletNote string
 
 	addressInput textinput.Model
 	amountInput  textinput.Model
 	memoInput    textinput.Model
 	focusIndex   int
+	walletCursor int
 
 	width  int
 	height int
@@ -118,7 +132,7 @@ func newModel(service *wallet.Service, networkValue wallet.Network) model {
 }
 
 func (m model) Init() tea.Cmd {
-	return m.refreshAccountCmd()
+	return tea.Batch(m.refreshAccountCmd(), m.loadWalletsCmd())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -179,10 +193,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Network switched to %s", msg.network)
 		m.errMessage = ""
 		return m, m.refreshAccountCmd()
+	case walletListLoadedMsg:
+		if msg.err != nil {
+			m.loading = false
+			m.errMessage = msg.err.Error()
+			return m, nil
+		}
+		m.wallets = msg.items
+		if m.walletCursor >= len(m.wallets) {
+			m.walletCursor = max(0, len(m.wallets)-1)
+		}
+		if m.mode == modeWallets {
+			m.status = fmt.Sprintf("Loaded %d wallet(s)", len(m.wallets))
+		}
+		m.errMessage = ""
+		return m, nil
+	case walletSwitchedMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.errMessage = msg.err.Error()
+			return m, nil
+		}
+		m.status = fmt.Sprintf("Switched active wallet to %s", shortAddress(msg.wallet.Address))
+		m.walletNote = msg.wallet.SecretPath
+		m.errMessage = ""
+		m.mode = modeHome
+		return m, tea.Batch(m.refreshAccountCmd(), m.loadWalletsCmd())
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeSend:
 			return m.updateSend(msg)
+		case modeWallets:
+			return m.updateWallets(msg)
 		default:
 			return m.updateGlobalKeys(msg)
 		}
@@ -215,6 +257,10 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.mode = modeSettings
 		return m, nil
+	case "w":
+		m.mode = modeWallets
+		m.loading = true
+		return m, m.loadWalletsCmd()
 	case "f":
 		if m.network == wallet.NetworkTestnet {
 			m.loading = true
@@ -266,6 +312,41 @@ func (m model) updateSend(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m model) updateWallets(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.mode = modeHome
+		return m, nil
+	case "up", "k":
+		if len(m.wallets) == 0 {
+			return m, nil
+		}
+		m.walletCursor--
+		if m.walletCursor < 0 {
+			m.walletCursor = len(m.wallets) - 1
+		}
+		return m, nil
+	case "down", "j":
+		if len(m.wallets) == 0 {
+			return m, nil
+		}
+		m.walletCursor++
+		if m.walletCursor >= len(m.wallets) {
+			m.walletCursor = 0
+		}
+		return m, nil
+	case "enter":
+		selected, ok := m.selectedWallet()
+		if !ok {
+			return m, nil
+		}
+		m.loading = true
+		m.errMessage = ""
+		return m, m.switchWalletCmd(selected.Address)
+	}
+	return m, nil
+}
+
 func (m model) View() string {
 	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).Render("Nebula")
 	infoStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1).Width(max(48, m.width/2-2))
@@ -293,6 +374,7 @@ func (m model) View() string {
 		"[s] Send",
 		"[h] History",
 		"[r] Refresh",
+		"[w] Wallets",
 		"[n] Toggle network",
 		"[c] Settings",
 		"[f] Friendbot (testnet)",
@@ -316,6 +398,11 @@ func (m model) View() string {
 		content = append(content, "", m.historyView())
 	case modeSettings:
 		content = append(content, "", m.settingsView())
+	case modeWallets:
+		content = append(content, "", m.walletsView())
+	}
+	if m.walletNote != "" {
+		content = append(content, "", "Wallet file: "+m.walletNote)
 	}
 	content = append(content, "", footer)
 	return lipgloss.NewStyle().Padding(1, 2).Render(strings.Join(content, "\n"))
@@ -358,14 +445,49 @@ func (m model) historyView() string {
 
 func (m model) settingsView() string {
 	box := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(1)
-	return box.Render(strings.Join([]string{
+	lines := []string{
 		"Settings",
 		"",
 		fmt.Sprintf("Storage: %s", m.service.StorageDir()),
+		fmt.Sprintf("Wallets: %s", m.service.WalletsDir()),
+		fmt.Sprintf("Config: %s", m.service.ConfigPath()),
 		fmt.Sprintf("Network: %s", m.network),
+		"Press [w] to manage saved wallets.",
 		"Press [n] to toggle and persist the selected network.",
 		"Press [esc] to return home.",
-	}, "\n"))
+	}
+	if activePath, err := m.service.ActiveWalletPath(); err == nil {
+		lines = append(lines, fmt.Sprintf("Active secret: %s", activePath))
+	}
+	return box.Render(strings.Join(lines, "\n"))
+}
+
+func (m model) walletsView() string {
+	box := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(1)
+	if len(m.wallets) == 0 {
+		return box.Render("Wallets\n\nNo saved wallets found.")
+	}
+
+	lines := []string{
+		"Wallets",
+		"",
+		fmt.Sprintf("Saved in: %s", m.service.WalletsDir()),
+		"",
+	}
+	for i, item := range m.wallets {
+		cursor := " "
+		if i == m.walletCursor {
+			cursor = ">"
+		}
+		status := "saved"
+		if item.Active {
+			status = "active"
+		}
+		lines = append(lines, fmt.Sprintf("%s %s  %s", cursor, shortAddress(item.Address), status))
+		lines = append(lines, "  "+item.SecretPath)
+	}
+	lines = append(lines, "", "Up/Down selects, Enter switches, Esc returns home.")
+	return box.Render(strings.Join(lines, "\n"))
 }
 
 func (m model) refreshAccountCmd() tea.Cmd {
@@ -383,6 +505,14 @@ func (m model) loadHistoryCmd() tea.Cmd {
 	return func() tea.Msg {
 		items, err := service.History(networkValue, wallet.DefaultHistoryLimit)
 		return historyLoadedMsg{items: items, err: normalizeUIError(err)}
+	}
+}
+
+func (m model) loadWalletsCmd() tea.Cmd {
+	service := m.service
+	return func() tea.Msg {
+		items, err := service.ListWallets()
+		return walletListLoadedMsg{items: items, err: normalizeUIError(err)}
 	}
 }
 
@@ -415,6 +545,14 @@ func (m model) fundCmd() tea.Cmd {
 	}
 }
 
+func (m model) switchWalletCmd(address string) tea.Cmd {
+	service := m.service
+	return func() tea.Msg {
+		walletData, err := service.SwitchWallet(address)
+		return walletSwitchedMsg{wallet: walletData, err: normalizeUIError(err)}
+	}
+}
+
 func (m *model) blurInputs() {
 	m.addressInput.Blur()
 	m.amountInput.Blur()
@@ -444,6 +582,13 @@ func normalizeUIError(err error) error {
 	default:
 		return err
 	}
+}
+
+func (m model) selectedWallet() (wallet.Wallet, bool) {
+	if len(m.wallets) == 0 || m.walletCursor < 0 || m.walletCursor >= len(m.wallets) {
+		return wallet.Wallet{}, false
+	}
+	return m.wallets[m.walletCursor], true
 }
 
 func shortHash(value string) string {

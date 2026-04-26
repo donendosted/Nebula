@@ -39,6 +39,18 @@ func (s *Service) StorageDir() string {
 	return s.storage.BaseDir()
 }
 
+func (s *Service) WalletsDir() string {
+	return s.storage.WalletsDir()
+}
+
+func (s *Service) ConfigPath() string {
+	return s.storage.ConfigPath()
+}
+
+func (s *Service) ActiveWalletPath() (string, error) {
+	return s.storage.ActiveWalletPath()
+}
+
 func (s *Service) CreateWallet() (Wallet, error) {
 	full, err := keypair.Random()
 	if err != nil {

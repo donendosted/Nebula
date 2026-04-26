@@ -16,8 +16,10 @@ const (
 )
 
 type Wallet struct {
-	Address string
-	Secret  string
+	Address    string
+	Secret     string
+	SecretPath string
+	Active     bool
 }
 
 type Balance struct {

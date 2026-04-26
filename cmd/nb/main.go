@@ -67,6 +67,8 @@ func newWalletCmd(state *appState) *cobra.Command {
 
 			fmt.Println(result.Address)
 			fmt.Fprintf(os.Stderr, "Created wallet and set active: %s\n", result.Address)
+			fmt.Fprintf(os.Stderr, "Wallet secrets directory: %s\n", svc.WalletsDir())
+			fmt.Fprintf(os.Stderr, "Active wallet secret file: %s\n", result.SecretPath)
 			return nil
 		},
 	})
@@ -88,6 +90,8 @@ func newWalletCmd(state *appState) *cobra.Command {
 
 			fmt.Println(result.Address)
 			fmt.Fprintf(os.Stderr, "Imported wallet and set active: %s\n", result.Address)
+			fmt.Fprintf(os.Stderr, "Wallet secrets directory: %s\n", svc.WalletsDir())
+			fmt.Fprintf(os.Stderr, "Active wallet secret file: %s\n", result.SecretPath)
 			return nil
 		},
 	})
@@ -134,12 +138,13 @@ func newWalletCmd(state *appState) *cobra.Command {
 
 			for _, walletData := range wallets {
 				status := "inactive"
-				if walletData.Address == activeAddress {
+				if walletData.Address == activeAddress || walletData.Active {
 					status = "active"
 				}
-				fmt.Printf("%s\t%s\n", walletData.Address, status)
+				fmt.Printf("%s\t%s\t%s\n", walletData.Address, status, walletData.SecretPath)
 			}
 			fmt.Fprintf(os.Stderr, "Listed %d wallet(s)\n", len(wallets))
+			fmt.Fprintf(os.Stderr, "Wallet secrets directory: %s\n", svc.WalletsDir())
 			return nil
 		},
 	})
@@ -161,6 +166,7 @@ func newWalletCmd(state *appState) *cobra.Command {
 
 			fmt.Println(walletData.Address)
 			fmt.Fprintf(os.Stderr, "Active wallet switched to %s\n", walletData.Address)
+			fmt.Fprintf(os.Stderr, "Active wallet secret file: %s\n", walletData.SecretPath)
 			return nil
 		},
 	})
