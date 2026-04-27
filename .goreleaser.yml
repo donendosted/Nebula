@@ -1,0 +1,78 @@
+version: 2
+
+project_name: nebula
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: nb
+    main: ./cmd/nb
+    binary: nb
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+
+  - id: nbtui
+    main: ./cmd/nbtui
+    binary: nbtui
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+
+archives:
+  - id: unix
+    ids:
+      - nb
+      - nbtui
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      nebula-{{ .Os }}-{{ .Arch }}
+    wrap_in_directory: >-
+      nebula-{{ .Os }}-{{ .Arch }}
+    files:
+      - src: packaging/release/README.md
+        dst: README.md
+      - src: >-
+          packaging/release/install{{ if eq .Os "windows" }}.ps1{{ else }}.sh{{ end }}
+        dst: >-
+          install{{ if eq .Os "windows" }}.ps1{{ else }}.sh{{ end }}
+        strip_parent: true
+    allow_different_binary_count: true
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: "{{ .ProjectName }} {{ .Version }}"
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "{{ .Version }}-next"

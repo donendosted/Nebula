@@ -42,3 +42,20 @@ Install globally:
 ```bash
 go install ./cmd/nb ./cmd/nbtui
 ```
+
+Automated releases:
+
+```bash
+git add .
+git commit -m "release"
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+GitHub Actions will publish platform archives automatically with GoReleaser.
+
+You can also use the helper:
+
+```bash
+./scripts/release-tag.sh v0.1.0
+```
