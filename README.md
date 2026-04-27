@@ -1,9 +1,11 @@
-# Nebula Stellar Wallet
+<img width="234" height="62" alt="image" src="https://github.com/user-attachments/assets/28d0de1f-3679-4e2c-9a0f-7a1df46ca93f" />
+
+# Nebula
 
 Nebula is a Go-based Stellar wallet project with:
 
 - `nb`: a scriptable CLI wallet
-- `nbtui`: a terminal UI wallet built with Bubble Tea
+- `nbtui`: a terminal UI wallet built for general use
 - `nebula/`: a reusable Go SDK for encrypted wallet storage and Stellar operations
   
 View the SDK documentations [here](#SDK)
@@ -18,9 +20,26 @@ Nebula is split into three layers:
 
 The frontends do not implement wallet logic directly. Encryption, wallet storage, active-wallet switching, Horizon access, funding, sending, and history all live in the SDK.
 
-## Download And Use
+## Demo Video
 
-### Option 1: Download from GitHub Releases
+https://github.com/user-attachments/assets/7093f335-85f4-4cff-9d04-3bb5e971d5eb
+
+## User feedback
+
+https://docs.google.com/spreadsheets/d/1fvJI2ZTKbtRnlA1-XOwUkVltRIPhzwVfm7Y_660YLdk/edit?usp=sharing
+
+You can share your feedback too here - https://forms.gle/HUpPBBwP4fGfSoRr8
+
+## Download from GitHub Releases
+
+[TEMPRARY PATCH FOR MAC] Macs donot let the app run suspecting it as a malware. Try this instead
+	
+	```bask
+	# macOS fix
+	xattr -d com.apple.quarantine nb nbtui
+	```
+
+Steps to download and run -
 
 1. Open the project’s GitHub Releases page.
 2. Download the archive for your platform:
@@ -32,42 +51,34 @@ The frontends do not implement wallet logic directly. Encryption, wallet storage
 3. Extract the archive.
 4. Run the binaries directly:
 
-Linux/macOS:
+	`cd` into the directory where you extracted and -
 
-```bash
-./nb
-./nbtui
-```
-
-Windows:
-
-```powershell
-.\nb.exe
-.\nbtui.exe
-```
+	```bash
+	./nbtui
+	```
 
 5. Install globally if you want them on your `PATH`.
 
-Linux/macOS:
-
-```bash
-chmod +x nb nbtui
-sudo mv nb /usr/local/bin/
-sudo mv nbtui /usr/local/bin/
-```
-
-Windows:
-
-1. Move `nb.exe` and `nbtui.exe` into a tools directory.
-2. Add that directory to your user `PATH`.
-
-Release archives also include:
-
-- `README.md`
-- `install.sh` for Linux/macOS
-- `install.ps1` for Windows
-
-### Option 2: Clone And Build From Source
+	Linux/macOS:
+	
+	```bash
+	chmod +x nb nbtui
+	sudo mv nb /usr/local/bin/
+	sudo mv nbtui /usr/local/bin/
+	```
+	
+	Windows:
+	
+	1. Move `nb.exe` and `nbtui.exe` into a tools directory.
+	2. Add that directory to your user `PATH`.
+	
+	Release archives also include:
+	
+	- `README.md`
+	- `install.sh` for Linux/macOS
+	- `install.ps1` for Windows
+	
+## Clone And Build Locally
 
 ```bash
 git clone https://github.com/donendosted/Nebula.git
@@ -89,11 +100,7 @@ Install globally from source:
 go install ./cmd/nb ./cmd/nbtui
 ```
 
-## Storage
-
-Nebula uses the default platform config directory from `os.UserConfigDir()`.
-
-Examples:
+Check for your wallet data in here:
 
 - Linux: `~/.config/nebula`
 - macOS: `~/Library/Application Support/nebula`
@@ -118,14 +125,6 @@ nb history
 nb send G... 1.5 --memo "test payment"
 nb network set mainnet
 nb man
-```
-
-Shell completion is available through Cobra:
-
-```bash
-nb completion bash
-nb completion zsh
-nb completion fish
 ```
 
 ## TUI
@@ -235,8 +234,7 @@ package main
 import (
 	"fmt"
 	"log"
-
-	"nebula/nebula"
+	"github.com/donendosted/Nebula/nebula"
 )
 
 func main() {
