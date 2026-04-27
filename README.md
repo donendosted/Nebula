@@ -5,6 +5,8 @@ Nebula is a Go-based Stellar wallet project with:
 - `nb`: a scriptable CLI wallet
 - `nbtui`: a terminal UI wallet built with Bubble Tea
 - `nebula/`: a reusable Go SDK for encrypted wallet storage and Stellar operations
+  
+View the SDK documentations [here](#SDK)
 
 ## Overview
 
@@ -68,8 +70,8 @@ Release archives also include:
 ### Option 2: Clone And Build From Source
 
 ```bash
-git clone <your-repo-url>
-cd codex
+git clone https://github.com/donendosted/Nebula.git
+cd Nebula
 go build -o nb ./cmd/nb
 go build -o nbtui ./cmd/nbtui
 ```
@@ -266,20 +268,6 @@ func main() {
 
 Releases are automated with GoReleaser and GitHub Actions.
 
-Tag and push:
-
-```bash
-git add .
-git commit -m "release"
-git tag v0.1.0
-git push origin HEAD
-git push origin v0.1.0
-```
-
-Or use the helper:
-
-```bash
-./scripts/release-tag.sh v0.1.0
-```
+Visit the [releases](https://github.com/donendosted/Nebula/releases)
 
 That pipeline publishes the platform archives to GitHub Releases automatically.
