@@ -32,12 +32,9 @@ You can share your feedback too here - https://forms.gle/HUpPBBwP4fGfSoRr8
 
 ## Download from GitHub Releases
 
-[TEMPRARY PATCH FOR MAC] Macs donot let the app run suspecting it as a malware. Try this instead
+***[PATCH FOR MAC]*** Macs donot let the app run suspecting it as a malware. Try this instead
 	
-	```bask
-	# macOS fix
 	xattr -d com.apple.quarantine nb nbtui
-	```
 
 Steps to download and run -
 
