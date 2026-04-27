@@ -32,6 +32,14 @@ https://docs.google.com/spreadsheets/d/1fvJI2ZTKbtRnlA1-XOwUkVltRIPhzwVfm7Y_660Y
 
 You can share your feedback too here - https://forms.gle/HUpPBBwP4fGfSoRr8
 
+### Feedback report
+
+| Timestamp | Email Address        | Name          | Wallet Address | Feedback | Commit ID |
+|-----------|----------------------|---------------|----------------|----------|-----------|
+| 4/27/2026 2:15:34   | rupamgh32@gmail.com | Rupam Ghosh   | GC7XMPOXBDBJMPNQ5SQE2DTGACVSX4RHOUXE2XFF2SLHPDJNFGADTIHW | After creating another wallet, previous one disappeared; please restore previous wallet + testnet funds | ad6c495aeed1ff9e21610752889c46d0d3cabee5 |
+
+
+
 ## Download from GitHub Releases
 
 ***[PATCH FOR MAC]*** Macs donot let the app run suspecting it as a malware. Try this instead
