@@ -156,7 +156,7 @@ The `nebula` package is intended for reuse by other Go programs.
 Import:
 
 ```go
-import "nebula/nebula"
+import "github.com/donendosted/Nebula/nebula"
 ```
 
 ### Main Types
