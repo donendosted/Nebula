@@ -12,6 +12,8 @@ View the SDK documentations [here](#SDK)
 
 ## Overview
 
+Nebula is for those who breath with commands, and prefer cli and tui over heavy web browsers. Nebula TUI is ligh-speed and the sdk is very easy to follow and build on. Users can build native games, dapps, and more and also integrate stellar wallet into their project at a snap.
+
 Nebula is split into three layers:
 
 - `cmd/nb`: Cobra-based CLI commands
@@ -266,3 +268,21 @@ Releases are automated with GoReleaser and GitHub Actions.
 Visit the [releases](https://github.com/donendosted/Nebula/releases)
 
 That pipeline publishes the platform archives to GitHub Releases automatically.
+
+## FUTURE ASPECT
+
+I am trying to improve the security features and more such as -
+
+- Multisig
+- encrypted keystore
+- hardware wallet support
+- transaction policies (limits, approvals)
+
+And more based on SDK and CL -
+- Improve the SDK
+- Automated payments, recoring payments
+
+And even more... Also submit your ideas to improve in the feedback form
+
+
+
