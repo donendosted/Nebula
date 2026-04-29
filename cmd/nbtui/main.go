@@ -4,10 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"nebula/nebula"
+	"nebula/indexer"
+	"nebula/multisig"
+	"nebula/stellar"
+	"nebula/wallet"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -22,6 +26,7 @@ const (
 	modeLogin    viewMode = "login"
 	modeHome     viewMode = "home"
 	modeSend     viewMode = "send"
+	modePropose  viewMode = "propose"
 	modeHistory  viewMode = "history"
 	modeSettings viewMode = "settings"
 	modeWallets  viewMode = "wallets"
@@ -29,61 +34,87 @@ const (
 	modeImport   viewMode = "import"
 )
 
+type walletItem struct {
+	Wallet       wallet.WalletSummary
+	Account      wallet.DerivedAccount
+	Active       bool
+	DisplayLabel string
+}
+
+type session struct {
+	Wallet     wallet.WalletSummary
+	Account    wallet.DerivedAccount
+	Secret     string
+	Passphrase string
+}
+
+type accountState struct {
+	Address string
+	Balance string
+	Reserve string
+	Funded  bool
+}
+
 type walletInventoryMsg struct {
-	wallets []nebula.WalletMeta
-	active  *nebula.WalletMeta
-	err     error
+	Items  []walletItem
+	Active *walletItem
+	Err    error
 }
 
 type loginMsg struct {
-	unlocked nebula.UnlockedWallet
-	err      error
+	Session session
+	Err     error
 }
 
 type accountMsg struct {
-	info nebula.AccountInfo
-	err  error
+	Account accountState
+	Err     error
 }
 
 type historyMsg struct {
-	items []nebula.HistoryEntry
-	err   error
+	Items []indexer.Record
+	Err   error
 }
 
 type sendMsg struct {
-	result nebula.SendResult
-	err    error
+	Hash string
+	Err  error
 }
 
 type fundMsg struct {
-	result nebula.FundResult
-	err    error
+	Hash string
+	Err  error
+}
+
+type proposalMsg struct {
+	Proposal multisig.Proposal
+	Err      error
 }
 
 type networkMsg struct {
-	network nebula.Network
-	err     error
+	Network string
+	Err     error
 }
 
 type walletSavedMsg struct {
-	unlocked nebula.UnlockedWallet
-	err      error
+	Session session
+	Err     error
 }
 
 type clipboardMsg struct {
-	err error
+	Err error
 }
 
 type model struct {
-	store   *nebula.Store
-	network nebula.Network
+	store   *wallet.Store
+	network string
 	mode    viewMode
 
-	activeWallet *nebula.WalletMeta
-	unlocked     *nebula.UnlockedWallet
-	wallets      []nebula.WalletMeta
-	history      []nebula.HistoryEntry
-	account      nebula.AccountInfo
+	activeItem *walletItem
+	session    *session
+	wallets    []walletItem
+	history    []indexer.Record
+	account    accountState
 
 	loading    bool
 	status     string
@@ -93,6 +124,7 @@ type model struct {
 	loginInput  textinput.Model
 	nameInput   textinput.Model
 	secretInput textinput.Model
+	passInput   textinput.Model
 	sendToInput textinput.Model
 	amountInput textinput.Model
 	memoInput   textinput.Model
@@ -104,25 +136,19 @@ type model struct {
 }
 
 func main() {
-	store, err := nebula.NewStore()
+	store, err := wallet.NewStore()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	networkValue, err := store.CurrentNetwork()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
-	m := newModel(store, networkValue)
+	m := newModel(store)
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func newModel(store *nebula.Store, networkValue nebula.Network) model {
+func newModel(store *wallet.Store) model {
 	loginInput := textinput.New()
 	loginInput.Placeholder = "Wallet passphrase"
 	loginInput.EchoMode = textinput.EchoPassword
@@ -134,8 +160,14 @@ func newModel(store *nebula.Store, networkValue nebula.Network) model {
 	nameInput.Width = 40
 
 	secretInput := textinput.New()
-	secretInput.Placeholder = "Secret seed or passphrase"
+	secretInput.Placeholder = "Mnemonic or passphrase"
 	secretInput.Width = 64
+
+	passInput := textinput.New()
+	passInput.Placeholder = "Encryption passphrase"
+	passInput.Width = 40
+	passInput.EchoMode = textinput.EchoPassword
+	passInput.EchoCharacter = '*'
 
 	sendToInput := textinput.New()
 	sendToInput.Placeholder = "Destination address"
@@ -153,12 +185,13 @@ func newModel(store *nebula.Store, networkValue nebula.Network) model {
 
 	return model{
 		store:       store,
-		network:     networkValue,
+		network:     store.CurrentNetwork(),
 		mode:        modeLogin,
 		loading:     true,
 		loginInput:  loginInput,
 		nameInput:   nameInput,
 		secretInput: secretInput,
+		passInput:   passInput,
 		sendToInput: sendToInput,
 		amountInput: amountInput,
 		memoInput:   memoInput,
@@ -177,50 +210,57 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case walletInventoryMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.errMessage = msg.err.Error()
-			if errors.Is(msg.err, nebula.ErrWalletNotFound) {
+		if msg.Err != nil {
+			if errors.Is(msg.Err, wallet.ErrWalletNotFound) {
 				m.mode = modeWelcome
 				m.errMessage = ""
+				m.wallets = nil
+				m.activeItem = nil
+				return m, nil
 			}
+			m.errMessage = normalizeUIError(msg.Err).Error()
 			return m, nil
 		}
-		m.wallets = msg.wallets
-		m.activeWallet = msg.active
+		m.wallets = msg.Items
+		m.activeItem = msg.Active
 		if len(m.wallets) == 0 {
 			m.mode = modeWelcome
 			return m, nil
 		}
-		if m.unlocked == nil {
+		if m.session == nil {
 			m.mode = modeLogin
 			m.loginInput.Focus()
-			m.status = fmt.Sprintf("Unlock %s", m.activeWallet.Name)
+			if m.activeItem != nil {
+				m.status = fmt.Sprintf("Unlock %s", m.activeItem.DisplayLabel)
+			}
 		}
 		return m, nil
 	case loginMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.errMessage = normalizeUIError(msg.err).Error()
+		if msg.Err != nil {
+			m.errMessage = normalizeUIError(msg.Err).Error()
 			return m, nil
 		}
-		m.unlocked = &msg.unlocked
-		active := msg.unlocked.Meta
-		m.activeWallet = &active
+		m.session = &msg.Session
+		active := walletItem{
+			Wallet:       msg.Session.Wallet,
+			Account:      msg.Session.Account,
+			Active:       true,
+			DisplayLabel: walletDisplayLabel(msg.Session.Wallet, msg.Session.Account),
+		}
+		m.activeItem = &active
 		m.loginInput.SetValue("")
 		m.errMessage = ""
-		m.status = fmt.Sprintf("Unlocked %s", active.Name)
+		m.status = fmt.Sprintf("Unlocked %s", active.DisplayLabel)
 		m.mode = modeHome
 		return m, tea.Batch(m.loadWalletInventoryCmd(), m.refreshAccountCmd())
 	case accountMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.errMessage = normalizeUIError(msg.err).Error()
+		if msg.Err != nil {
+			m.errMessage = normalizeUIError(msg.Err).Error()
 			return m, nil
 		}
-		m.account = msg.info
-		if m.unlocked != nil {
-			m.account.Name = m.unlocked.Meta.Name
-		}
+		m.account = msg.Account
 		m.errMessage = ""
 		if m.status == "" {
 			m.status = fmt.Sprintf("Refreshed %s", time.Now().Format("15:04:05"))
@@ -228,25 +268,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case historyMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.errMessage = normalizeUIError(msg.err).Error()
+		if msg.Err != nil {
+			m.errMessage = normalizeUIError(msg.Err).Error()
 			return m, nil
 		}
-		m.history = msg.items
+		m.history = msg.Items
 		m.errMessage = ""
-		m.status = fmt.Sprintf("Loaded %d entries", len(msg.items))
+		m.status = fmt.Sprintf("Loaded %d indexed entries", len(msg.Items))
 		return m, nil
 	case sendMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.errMessage = normalizeUIError(msg.err).Error()
+		if msg.Err != nil {
+			m.errMessage = normalizeUIError(msg.Err).Error()
 			return m, nil
 		}
 		m.errMessage = ""
 		if strings.TrimSpace(m.memoInput.Value()) == "" {
-			m.status = fmt.Sprintf("Sent %s %s. Suggestion: use memo next time.", msg.result.Amount, msg.result.AssetCode)
+			m.status = fmt.Sprintf("Sent %s XLM. Suggestion: use memo next time.", m.amountInput.Value())
 		} else {
-			m.status = fmt.Sprintf("Sent %s %s", msg.result.Amount, msg.result.AssetCode)
+			m.status = fmt.Sprintf("Sent %s XLM", m.amountInput.Value())
 		}
 		m.sendToInput.SetValue("")
 		m.amountInput.SetValue("")
@@ -255,49 +295,64 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.refreshAccountCmd(), m.loadHistoryCmd())
 	case fundMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.errMessage = normalizeUIError(msg.err).Error()
+		if msg.Err != nil {
+			m.errMessage = normalizeUIError(msg.Err).Error()
 			return m, nil
 		}
-		if msg.result.LimitReached {
-			m.status = "Limit reached"
-		} else {
-			m.status = fmt.Sprintf("Funded %d/2 times", msg.result.FundedCount)
+		m.errMessage = ""
+		m.status = "Funded testnet account"
+		return m, tea.Batch(m.refreshAccountCmd(), m.loadHistoryCmd())
+	case proposalMsg:
+		m.loading = false
+		if msg.Err != nil {
+			m.errMessage = normalizeUIError(msg.Err).Error()
+			return m, nil
 		}
 		m.errMessage = ""
-		return m, tea.Batch(m.refreshAccountCmd(), m.loadWalletInventoryCmd())
+		m.status = fmt.Sprintf("Proposal saved: %s", msg.Proposal.ID)
+		m.sendToInput.SetValue("")
+		m.amountInput.SetValue("")
+		m.memoInput.SetValue("")
+		m.mode = modeHome
+		return m, nil
 	case networkMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.errMessage = normalizeUIError(msg.err).Error()
+		if msg.Err != nil {
+			m.errMessage = normalizeUIError(msg.Err).Error()
 			return m, nil
 		}
-		m.network = msg.network
+		m.network = msg.Network
 		m.errMessage = ""
-		m.status = fmt.Sprintf("Network switched to %s", msg.network)
-		if m.unlocked != nil {
+		m.status = fmt.Sprintf("Network switched to %s", msg.Network)
+		if m.session != nil {
 			return m, tea.Batch(m.refreshAccountCmd(), m.loadHistoryCmd())
 		}
 		return m, nil
 	case walletSavedMsg:
 		m.loading = false
-		if msg.err != nil {
-			m.errMessage = normalizeUIError(msg.err).Error()
+		if msg.Err != nil {
+			m.errMessage = normalizeUIError(msg.Err).Error()
 			return m, nil
 		}
-		m.unlocked = &msg.unlocked
-		active := msg.unlocked.Meta
-		m.activeWallet = &active
+		m.session = &msg.Session
+		active := walletItem{
+			Wallet:       msg.Session.Wallet,
+			Account:      msg.Session.Account,
+			Active:       true,
+			DisplayLabel: walletDisplayLabel(msg.Session.Wallet, msg.Session.Account),
+		}
+		m.activeItem = &active
 		m.nameInput.SetValue("")
 		m.secretInput.SetValue("")
+		m.passInput.SetValue("")
 		m.loginInput.SetValue("")
 		m.errMessage = ""
-		m.status = fmt.Sprintf("Active wallet: %s", active.Name)
+		m.status = fmt.Sprintf("Active wallet: %s", active.DisplayLabel)
 		m.mode = modeHome
 		return m, tea.Batch(m.loadWalletInventoryCmd(), m.refreshAccountCmd())
 	case clipboardMsg:
-		if msg.err != nil {
-			m.errMessage = msg.err.Error()
+		if msg.Err != nil {
+			m.errMessage = msg.Err.Error()
 			return m, nil
 		}
 		m.errMessage = ""
@@ -314,7 +369,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateCreate(msg)
 		case modeImport:
 			return m.updateImport(msg)
-		case modeSend:
+		case modeSend, modePropose:
 			return m.updateSend(msg)
 		case modeWallets:
 			return m.updateWallets(msg)
@@ -335,26 +390,34 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "Press q again to quit."
 		return m, nil
 	case "r":
-		if m.unlocked == nil {
+		if m.session == nil {
 			return m, nil
 		}
 		m.loading = true
-		return m, m.refreshAccountCmd()
+		return m, tea.Batch(m.refreshAccountCmd(), m.loadHistoryCmd())
 	case "n":
 		m.loading = true
 		return m, m.toggleNetworkCmd()
 	case "h":
-		if m.unlocked == nil {
+		if m.session == nil {
 			return m, nil
 		}
 		m.mode = modeHistory
 		m.loading = true
 		return m, m.loadHistoryCmd()
 	case "s":
-		if m.unlocked == nil {
+		if m.session == nil {
 			return m, nil
 		}
 		m.mode = modeSend
+		m.focusIndex = 0
+		m.focusSendInput()
+		return m, nil
+	case "p":
+		if m.session == nil {
+			return m, nil
+		}
+		m.mode = modePropose
 		m.focusIndex = 0
 		m.focusSendInput()
 		return m, nil
@@ -366,16 +429,16 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.loading = true
 		return m, m.loadWalletInventoryCmd()
 	case "f":
-		if m.unlocked == nil || m.network != nebula.NetworkTestnet {
+		if m.session == nil || m.network != stellar.NetworkTestnet {
 			return m, nil
 		}
 		m.loading = true
 		return m, m.fundCmd()
 	case "y":
-		if m.unlocked == nil {
+		if m.session == nil {
 			return m, nil
 		}
-		return m, copyAddressCmd(m.unlocked.Meta.Address)
+		return m, copyAddressCmd(m.session.Account.Address)
 	case "i":
 		if m.mode == modeWelcome || m.mode == modeWallets {
 			m.mode = modeImport
@@ -389,15 +452,15 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "l":
-		if m.unlocked != nil {
-			m.unlocked = nil
+		if m.session != nil {
+			m.session = nil
 			m.mode = modeLogin
 			m.status = "Locked. Enter passphrase."
 			m.loginInput.Focus()
 			return m, nil
 		}
 	case "esc":
-		if m.unlocked != nil {
+		if m.session != nil {
 			m.mode = modeHome
 		}
 		return m, nil
@@ -415,17 +478,9 @@ func (m model) updateLogin(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "Press q again to quit."
 		return m, nil
 	case "enter":
-		target := ""
-		activate := false
-		if m.activeWallet != nil {
-			target = m.activeWallet.Address
-			if m.unlocked == nil || m.unlocked.Meta.Address != m.activeWallet.Address {
-				activate = true
-			}
-		}
 		m.loading = true
 		m.errMessage = ""
-		return m, m.unlockWalletCmd(target, m.loginInput.Value(), activate)
+		return m, m.unlockWalletCmd(m.selectedOrActiveItem(), m.loginInput.Value())
 	case "a":
 		m.mode = modeCreate
 		m.focusCreateInput()
@@ -443,7 +498,7 @@ func (m model) updateLogin(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.mode = returnMode(m.unlocked)
+		m.mode = returnMode(m.session)
 		return m, nil
 	case "tab", "shift+tab", "up", "down":
 		m.cycleCreateFocus(msg.String())
@@ -451,13 +506,13 @@ func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.loading = true
 		m.errMessage = ""
-		return m, m.createWalletCmd(m.nameInput.Value(), m.secretInput.Value())
+		return m, m.createWalletCmd(m.nameInput.Value(), m.passInput.Value())
 	}
 	var cmd tea.Cmd
 	if m.focusIndex == 0 {
 		m.nameInput, cmd = m.nameInput.Update(msg)
 	} else {
-		m.secretInput, cmd = m.secretInput.Update(msg)
+		m.passInput, cmd = m.passInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -465,7 +520,7 @@ func (m model) updateCreate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m model) updateImport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
-		m.mode = returnMode(m.unlocked)
+		m.mode = returnMode(m.session)
 		return m, nil
 	case "tab", "shift+tab", "up", "down":
 		m.cycleImportFocus(msg.String())
@@ -473,7 +528,7 @@ func (m model) updateImport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.loading = true
 		m.errMessage = ""
-		return m, m.importWalletCmd(m.nameInput.Value(), m.secretInput.Value(), m.loginInput.Value())
+		return m, m.importWalletCmd(m.nameInput.Value(), m.secretInput.Value(), m.passInput.Value())
 	}
 	var cmd tea.Cmd
 	switch m.focusIndex {
@@ -482,7 +537,7 @@ func (m model) updateImport(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case 1:
 		m.secretInput, cmd = m.secretInput.Update(msg)
 	case 2:
-		m.loginInput, cmd = m.loginInput.Update(msg)
+		m.passInput, cmd = m.passInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -498,6 +553,9 @@ func (m model) updateSend(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.loading = true
 		m.errMessage = ""
+		if m.mode == modePropose {
+			return m, m.proposeCmd()
+		}
 		return m, m.sendCmd()
 	}
 	var cmd tea.Cmd
@@ -543,10 +601,10 @@ func (m model) updateWallets(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.mode = modeLogin
-		m.activeWallet = &selected
+		m.activeItem = &selected
 		m.loginInput.SetValue("")
 		m.loginInput.Focus()
-		m.status = fmt.Sprintf("Enter passphrase for %s", selected.Name)
+		m.status = fmt.Sprintf("Enter passphrase for %s", selected.DisplayLabel)
 		return m, nil
 	case "a":
 		m.mode = modeCreate
@@ -582,7 +640,9 @@ func (m model) View() string {
 	case modeHome:
 		content = append(content, m.homeView())
 	case modeSend:
-		content = append(content, m.homeView(), "", m.sendView())
+		content = append(content, m.homeView(), "", m.sendView("Send"))
+	case modePropose:
+		content = append(content, m.homeView(), "", m.sendView("Propose Multisig Tx"))
 	case modeHistory:
 		content = append(content, m.homeView(), "", m.historyView())
 	case modeSettings:
@@ -613,8 +673,8 @@ func (m model) welcomeView() string {
 func (m model) loginView() string {
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1)
 	target := "active wallet"
-	if m.activeWallet != nil {
-		target = fmt.Sprintf("%s (%s)", m.activeWallet.Name, shortAddress(m.activeWallet.Address))
+	if m.activeItem != nil {
+		target = m.activeItem.DisplayLabel
 	}
 	lines := []string{
 		"Login",
@@ -632,19 +692,22 @@ func (m model) homeView() string {
 	actions := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1)
 	name := "Locked"
 	address := "No wallet"
-	if m.unlocked != nil {
-		name = m.unlocked.Meta.Name
-		address = m.unlocked.Meta.Address
+	path := "n/a"
+	if m.session != nil {
+		name = m.session.Wallet.Name
+		address = m.session.Account.Address
+		path = m.session.Account.Path
 	}
 	balanceText := "Account not funded"
 	if m.account.Funded {
-		balanceText = fmt.Sprintf("%s %s", nativeBalance(m.account), nebula.AssetCodeXLM)
+		balanceText = fmt.Sprintf("%s XLM", m.account.Balance)
 	}
 	left := panel.Render(strings.Join([]string{
 		"Wallet",
 		"",
 		fmt.Sprintf("Name: %s", name),
 		fmt.Sprintf("Address: %s", address),
+		fmt.Sprintf("Path: %s", path),
 		fmt.Sprintf("Balance: %s", balanceText),
 		fmt.Sprintf("Network: %s", m.network),
 		fmt.Sprintf("Reserve: %s XLM", m.account.Reserve),
@@ -653,6 +716,7 @@ func (m model) homeView() string {
 		"Actions",
 		"",
 		"[s] Send",
+		"[p] Propose tx",
 		"[h] History",
 		"[r] Refresh",
 		"[w] Wallets",
@@ -666,28 +730,32 @@ func (m model) homeView() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 }
 
-func (m model) sendView() string {
+func (m model) sendView(title string) string {
 	box := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(1)
+	description := "Enter submits live payment. Tab moves fields. Esc returns home."
+	if m.mode == modePropose {
+		description = "Enter saves unsigned multisig proposal. Tab moves fields. Esc returns home."
+	}
 	return box.Render(strings.Join([]string{
-		"Send",
+		title,
 		"",
 		m.sendToInput.View(),
 		m.amountInput.View(),
 		m.memoInput.View(),
 		"",
-		"Enter submits. Tab moves fields. Esc returns home.",
+		description,
 	}, "\n"))
 }
 
 func (m model) historyView() string {
 	box := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(1)
 	if len(m.history) == 0 {
-		return box.Render("History\n\nNo recent transactions.")
+		return box.Render("History\n\nNo indexed transactions yet. Press [h] after refresh or sync activity.")
 	}
 	lines := []string{"History", ""}
 	for _, item := range m.history {
 		lines = append(lines, fmt.Sprintf("%s  %s  %s %s %s  %s",
-			item.CreatedAt.Format("2006-01-02 15:04"),
+			item.Timestamp.Format("2006-01-02 15:04"),
 			shortHash(item.Hash),
 			item.Direction,
 			item.Amount,
@@ -701,17 +769,14 @@ func (m model) historyView() string {
 
 func (m model) settingsView() string {
 	box := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(1)
-	activePath := "Locked"
-	if path, err := m.store.ActiveWalletPath(); err == nil {
-		activePath = path
-	}
+	proposalPath := filepath.Join(m.store.RootDir(), "proposals")
 	lines := []string{
 		"Settings",
 		"",
-		fmt.Sprintf("Storage: %s", m.store.BaseDir()),
-		fmt.Sprintf("Wallets: %s", m.store.WalletsDir()),
-		fmt.Sprintf("Config: %s", m.store.ConfigPath()),
-		fmt.Sprintf("Active secret: %s", activePath),
+		fmt.Sprintf("Storage: %s", m.store.RootDir()),
+		fmt.Sprintf("Wallet DB: %s", m.store.DBDir()),
+		fmt.Sprintf("Index DB: %s", m.store.IndexDir()),
+		fmt.Sprintf("Proposals: %s", proposalPath),
 		"",
 		"Install globally:",
 		"  go install ./cmd/nb ./cmd/nbtui",
@@ -727,7 +792,7 @@ func (m model) walletsView() string {
 	if len(m.wallets) == 0 {
 		return box.Render("Wallets\n\nNo wallets saved.")
 	}
-	lines := []string{"Wallets", "", fmt.Sprintf("Saved in: %s", m.store.WalletsDir()), ""}
+	lines := []string{"Wallets", "", fmt.Sprintf("Saved in: %s", m.store.DBDir()), ""}
 	for i, item := range m.wallets {
 		cursor := " "
 		if i == m.walletCursor {
@@ -737,10 +802,10 @@ func (m model) walletsView() string {
 		if item.Active {
 			status = "active"
 		}
-		lines = append(lines, fmt.Sprintf("%s %s  %s  %s", cursor, item.Name, shortAddress(item.Address), status))
-		lines = append(lines, "  "+item.SecretPath)
+		lines = append(lines, fmt.Sprintf("%s %s  %s", cursor, item.DisplayLabel, status))
+		lines = append(lines, "  "+item.Account.Address)
 	}
-	lines = append(lines, "", "Enter prepares login for selected wallet. [a] create, [i] import.")
+	lines = append(lines, "", "Enter prepares login for selected wallet account. [a] create, [i] import.")
 	return box.Render(strings.Join(lines, "\n"))
 }
 
@@ -750,9 +815,9 @@ func (m model) createView() string {
 		"Create Wallet",
 		"",
 		m.nameInput.View(),
-		m.secretInput.View(),
+		m.passInput.View(),
 		"",
-		"Passphrase input above is hidden. Enter creates wallet. Esc cancels.",
+		"Name, then encryption passphrase. Enter creates wallet. Esc cancels.",
 	}, "\n"))
 }
 
@@ -763,186 +828,211 @@ func (m model) importView() string {
 		"",
 		m.nameInput.View(),
 		m.secretInput.View(),
-		m.loginInput.View(),
+		m.passInput.View(),
 		"",
-		"Name, secret seed, then passphrase. Enter imports. Esc cancels.",
+		"Name, mnemonic, then encryption passphrase. Enter imports. Esc cancels.",
 	}, "\n"))
 }
 
 func (m model) loadWalletInventoryCmd() tea.Cmd {
 	store := m.store
 	return func() tea.Msg {
-		wallets, err := store.ListWallets()
-		if err != nil {
-			return walletInventoryMsg{err: err}
-		}
-		active, err := store.ActiveWallet()
-		if err != nil {
-			return walletInventoryMsg{wallets: wallets, err: err}
-		}
-		return walletInventoryMsg{wallets: wallets, active: &active}
+		items, active, err := loadWalletItems(store)
+		return walletInventoryMsg{Items: items, Active: active, Err: err}
 	}
 }
 
 func (m model) refreshAccountCmd() tea.Cmd {
-	if m.unlocked == nil {
+	if m.session == nil {
 		return nil
 	}
-	unlocked := *m.unlocked
-	networkValue := m.network
+	current := *m.session
+	networkName := m.network
 	return func() tea.Msg {
-		client, err := unlocked.Client(networkValue)
+		client, err := stellar.NewClient(networkName)
 		if err != nil {
-			return accountMsg{err: err}
+			return accountMsg{Err: err}
 		}
-		info, err := client.Balance()
+		balance, funded, err := client.Balance(current.Account.Address)
 		if err != nil {
-			return accountMsg{err: err}
+			return accountMsg{Err: err}
 		}
-		info.Name = unlocked.Meta.Name
-		return accountMsg{info: info}
+		return accountMsg{Account: accountState{
+			Address: current.Account.Address,
+			Balance: balance,
+			Funded:  funded,
+			Reserve: stellar.FormatStroops(10_000_000),
+		}}
 	}
 }
 
 func (m model) loadHistoryCmd() tea.Cmd {
-	if m.unlocked == nil {
+	if m.session == nil {
 		return nil
 	}
-	unlocked := *m.unlocked
-	networkValue := m.network
+	current := *m.session
+	networkName := m.network
 	return func() tea.Msg {
-		client, err := unlocked.Client(networkValue)
+		client, err := stellar.NewClient(networkName)
 		if err != nil {
-			return historyMsg{err: err}
+			return historyMsg{Err: err}
 		}
-		items, err := client.History(nebula.DefaultHistoryLimit)
-		return historyMsg{items: items, err: err}
+		idx, err := indexer.NewStore()
+		if err != nil {
+			return historyMsg{Err: err}
+		}
+		defer idx.Close()
+		if _, err := idx.SyncAccount(client, current.Account.Address, 20); err != nil && !errors.Is(err, stellar.ErrAccountNotFunded) {
+			return historyMsg{Err: err}
+		}
+		items, err := idx.SearchAccount(current.Account.Address, 365*24*time.Hour)
+		if err != nil {
+			return historyMsg{Err: err}
+		}
+		if len(items) > 10 {
+			items = items[:10]
+		}
+		return historyMsg{Items: items}
 	}
 }
 
 func (m model) sendCmd() tea.Cmd {
-	if m.unlocked == nil {
+	if m.session == nil {
 		return nil
 	}
-	unlocked := *m.unlocked
-	networkValue := m.network
+	current := *m.session
+	networkName := m.network
 	address := m.sendToInput.Value()
 	amount := m.amountInput.Value()
 	memo := m.memoInput.Value()
 	return func() tea.Msg {
-		client, err := unlocked.Client(networkValue)
+		client, err := stellar.NewClient(networkName)
 		if err != nil {
-			return sendMsg{err: err}
+			return sendMsg{Err: err}
 		}
-		result, err := client.Send(address, amount, memo)
-		return sendMsg{result: result, err: err}
+		hash, err := client.SendPayment(current.Secret, address, amount, memo)
+		return sendMsg{Hash: hash, Err: err}
+	}
+}
+
+func (m model) proposeCmd() tea.Cmd {
+	if m.session == nil {
+		return nil
+	}
+	current := *m.session
+	networkName := m.network
+	address := m.sendToInput.Value()
+	amount := m.amountInput.Value()
+	memo := m.memoInput.Value()
+	store := m.store
+	return func() tea.Msg {
+		service := multisig.NewService(store)
+		proposal, err := service.ProposePayment(current.Secret, networkName, current.Wallet.ID, current.Account.Index, address, amount, memo)
+		return proposalMsg{Proposal: proposal, Err: err}
 	}
 }
 
 func (m model) fundCmd() tea.Cmd {
-	if m.unlocked == nil {
+	if m.session == nil {
 		return nil
 	}
-	unlocked := *m.unlocked
-	store := m.store
-	networkValue := m.network
+	current := *m.session
+	networkName := m.network
 	return func() tea.Msg {
-		client, err := unlocked.Client(networkValue)
+		client, err := stellar.NewClient(networkName)
 		if err != nil {
-			return fundMsg{err: err}
+			return fundMsg{Err: err}
 		}
-		hash, err := client.FundTestnet()
-		if err != nil {
-			if errors.Is(err, nebula.ErrFriendbotLimit) {
-				return fundMsg{result: nebula.FundResult{LimitReached: true}}
-			}
-			return fundMsg{err: err}
-		}
-		count, err := store.RecordTestnetFunding(unlocked.Meta.Address)
-		if err != nil {
-			return fundMsg{err: err}
-		}
-		if count > 2 {
-			count = 2
-		}
-		return fundMsg{result: nebula.FundResult{Hash: hash, FundedCount: count}}
+		hash, err := client.FundTestnet(current.Account.Address)
+		return fundMsg{Hash: hash, Err: err}
 	}
 }
 
 func (m model) toggleNetworkCmd() tea.Cmd {
 	store := m.store
 	return func() tea.Msg {
-		networkValue, err := store.ToggleNetwork()
-		return networkMsg{network: networkValue, err: err}
+		networkName, err := store.ToggleNetwork()
+		return networkMsg{Network: networkName, Err: err}
 	}
 }
 
-func (m model) unlockWalletCmd(identifier, passphrase string, activate bool) tea.Cmd {
+func (m model) unlockWalletCmd(item *walletItem, passphrase string) tea.Cmd {
 	store := m.store
 	return func() tea.Msg {
-		var unlocked nebula.UnlockedWallet
-		var err error
-		if strings.TrimSpace(identifier) == "" {
-			unlocked, err = store.UnlockActiveWallet(passphrase)
-		} else {
-			unlocked, err = store.UnlockWallet(identifier, passphrase)
+		if item == nil {
+			return loginMsg{Err: wallet.ErrWalletNotFound}
 		}
+		if err := store.SetActiveWallet(item.Wallet.ID, item.Account.Index); err != nil {
+			return loginMsg{Err: err}
+		}
+		summary, account, secret, err := store.ActiveAccount(passphrase)
 		if err != nil {
-			return loginMsg{err: err}
+			return loginMsg{Err: err}
 		}
-		if activate {
-			if _, err := store.SwitchActiveWallet(unlocked.Meta.Address); err != nil {
-				return loginMsg{err: err}
-			}
-			meta, metaErr := store.ActiveWallet()
-			if metaErr == nil {
-				unlocked.Meta = meta
-			}
-		}
-		return loginMsg{unlocked: unlocked}
+		return loginMsg{Session: session{
+			Wallet:     summary,
+			Account:    account,
+			Secret:     secret,
+			Passphrase: passphrase,
+		}}
 	}
 }
 
 func (m model) createWalletCmd(name, passphrase string) tea.Cmd {
 	store := m.store
 	return func() tea.Msg {
-		meta, err := store.CreateWallet(name, passphrase)
+		summary, _, err := store.CreateWallet(wallet.CreateOptions{Name: name, Passphrase: passphrase, Words: 24})
 		if err != nil {
-			return walletSavedMsg{err: err}
+			return walletSavedMsg{Err: err}
 		}
-		unlocked, err := store.UnlockWallet(meta.Address, passphrase)
-		return walletSavedMsg{unlocked: unlocked, err: err}
+		if err := store.SetActiveWallet(summary.ID, 0); err != nil {
+			return walletSavedMsg{Err: err}
+		}
+		unlockedSummary, account, secret, err := store.ActiveAccount(passphrase)
+		return walletSavedMsg{Session: session{
+			Wallet:     unlockedSummary,
+			Account:    account,
+			Secret:     secret,
+			Passphrase: passphrase,
+		}, Err: err}
 	}
 }
 
-func (m model) importWalletCmd(name, secret, passphrase string) tea.Cmd {
+func (m model) importWalletCmd(name, mnemonic, passphrase string) tea.Cmd {
 	store := m.store
 	return func() tea.Msg {
-		meta, err := store.ImportWallet(name, secret, passphrase)
+		summary, err := store.ImportWallet(wallet.ImportOptions{Name: name, Mnemonic: mnemonic, Passphrase: passphrase})
 		if err != nil {
-			return walletSavedMsg{err: err}
+			return walletSavedMsg{Err: err}
 		}
-		unlocked, err := store.UnlockWallet(meta.Address, passphrase)
-		return walletSavedMsg{unlocked: unlocked, err: err}
+		if err := store.SetActiveWallet(summary.ID, 0); err != nil {
+			return walletSavedMsg{Err: err}
+		}
+		unlockedSummary, account, secret, err := store.ActiveAccount(passphrase)
+		return walletSavedMsg{Session: session{
+			Wallet:     unlockedSummary,
+			Account:    account,
+			Secret:     secret,
+			Passphrase: passphrase,
+		}, Err: err}
 	}
 }
 
 func copyAddressCmd(address string) tea.Cmd {
 	return func() tea.Msg {
-		return clipboardMsg{err: clipboard.WriteAll(address)}
+		return clipboardMsg{Err: clipboard.WriteAll(address)}
 	}
 }
 
 func (m *model) focusCreateInput() {
 	m.focusIndex = 0
 	m.nameInput.SetValue("")
-	m.secretInput.SetValue("")
+	m.passInput.SetValue("")
 	m.nameInput.Placeholder = "Wallet name"
-	m.secretInput.Placeholder = "Wallet passphrase"
+	m.passInput.Placeholder = "Wallet passphrase"
 	m.nameInput.Focus()
+	m.passInput.Blur()
 	m.secretInput.Blur()
-	m.secretInput.EchoMode = textinput.EchoPassword
-	m.secretInput.EchoCharacter = '*'
 	m.loginInput.Blur()
 }
 
@@ -950,15 +1040,12 @@ func (m *model) focusImportInput() {
 	m.focusIndex = 0
 	m.nameInput.SetValue("")
 	m.secretInput.SetValue("")
-	m.loginInput.SetValue("")
+	m.passInput.SetValue("")
 	m.nameInput.Placeholder = "Wallet name"
-	m.secretInput.Placeholder = "Secret seed"
+	m.secretInput.Placeholder = "Mnemonic phrase"
 	m.nameInput.Focus()
 	m.secretInput.Blur()
-	m.secretInput.EchoMode = textinput.EchoNormal
-	m.loginInput.Blur()
-	m.loginInput.EchoMode = textinput.EchoPassword
-	m.loginInput.EchoCharacter = '*'
+	m.passInput.Blur()
 }
 
 func (m *model) focusSendInput() {
@@ -981,10 +1068,10 @@ func (m *model) cycleCreateFocus(direction string) {
 	}
 	if m.focusIndex == 0 {
 		m.nameInput.Focus()
-		m.secretInput.Blur()
+		m.passInput.Blur()
 	} else {
 		m.nameInput.Blur()
-		m.secretInput.Focus()
+		m.passInput.Focus()
 	}
 }
 
@@ -1002,14 +1089,14 @@ func (m *model) cycleImportFocus(direction string) {
 	}
 	m.nameInput.Blur()
 	m.secretInput.Blur()
-	m.loginInput.Blur()
+	m.passInput.Blur()
 	switch m.focusIndex {
 	case 0:
 		m.nameInput.Focus()
 	case 1:
 		m.secretInput.Focus()
 	case 2:
-		m.loginInput.Focus()
+		m.passInput.Focus()
 	}
 }
 
@@ -1038,11 +1125,55 @@ func (m *model) cycleSendFocus(direction string) {
 	}
 }
 
-func (m model) selectedWallet() (nebula.WalletMeta, bool) {
+func (m model) selectedWallet() (walletItem, bool) {
 	if len(m.wallets) == 0 || m.walletCursor < 0 || m.walletCursor >= len(m.wallets) {
-		return nebula.WalletMeta{}, false
+		return walletItem{}, false
 	}
 	return m.wallets[m.walletCursor], true
+}
+
+func (m model) selectedOrActiveItem() *walletItem {
+	if m.activeItem != nil {
+		return m.activeItem
+	}
+	if len(m.wallets) == 0 {
+		return nil
+	}
+	item := m.wallets[0]
+	return &item
+}
+
+func loadWalletItems(store *wallet.Store) ([]walletItem, *walletItem, error) {
+	summaries, err := store.ListWallets()
+	if err != nil {
+		return nil, nil, err
+	}
+	cfg, err := store.Config()
+	if err != nil {
+		return nil, nil, err
+	}
+	items := []walletItem{}
+	var active *walletItem
+	for _, summary := range summaries {
+		for _, account := range summary.Accounts {
+			item := walletItem{
+				Wallet:       summary,
+				Account:      account,
+				Active:       summary.ID == cfg.ActiveWalletID && account.Index == cfg.ActiveAccountIndex,
+				DisplayLabel: walletDisplayLabel(summary, account),
+			}
+			items = append(items, item)
+			if item.Active {
+				copy := item
+				active = &copy
+			}
+		}
+	}
+	return items, active, nil
+}
+
+func walletDisplayLabel(summary wallet.WalletSummary, account wallet.DerivedAccount) string {
+	return fmt.Sprintf("%s [%d]", summary.Name, account.Index)
 }
 
 func normalizeUIError(err error) error {
@@ -1050,24 +1181,25 @@ func normalizeUIError(err error) error {
 		return nil
 	}
 	switch {
-	case errors.Is(err, nebula.ErrWalletNotFound):
+	case errors.Is(err, wallet.ErrWalletNotFound):
 		return fmt.Errorf("wallet not found. Create or import one first")
-	case errors.Is(err, nebula.ErrInvalidPassphrase):
+	case errors.Is(err, wallet.ErrInvalidPassphrase):
 		return fmt.Errorf("invalid passphrase")
-	case errors.Is(err, nebula.ErrAccountNotFunded):
+	case errors.Is(err, wallet.ErrInvalidMnemonic):
+		return fmt.Errorf("invalid mnemonic")
+	case errors.Is(err, stellar.ErrAccountNotFunded):
 		return fmt.Errorf("Account not funded. Use Friendbot on testnet")
+	case errors.Is(err, stellar.ErrInvalidAddress):
+		return fmt.Errorf("invalid address")
+	case errors.Is(err, stellar.ErrInvalidAmount):
+		return fmt.Errorf("amount must be greater than 0")
+	case errors.Is(err, stellar.ErrInsufficientBalance):
+		return fmt.Errorf("insufficient balance after reserve")
+	case errors.Is(err, stellar.ErrFriendbotLimit):
+		return fmt.Errorf("Friendbot limit reached")
 	default:
 		return err
 	}
-}
-
-func nativeBalance(info nebula.AccountInfo) string {
-	for _, balance := range info.Balance {
-		if balance.AssetCode == nebula.AssetCodeXLM {
-			return balance.Amount
-		}
-	}
-	return "0.0000000"
 }
 
 func shortHash(value string) string {
@@ -1084,8 +1216,8 @@ func shortAddress(value string) string {
 	return value[:7] + "..." + value[len(value)-7:]
 }
 
-func returnMode(unlocked *nebula.UnlockedWallet) viewMode {
-	if unlocked == nil {
+func returnMode(current *session) viewMode {
+	if current == nil {
 		return modeWelcome
 	}
 	return modeHome

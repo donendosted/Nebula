@@ -3,6 +3,7 @@ package stellar
 import (
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -18,7 +19,8 @@ const (
 	// NetworkTestnet is the Stellar test network identifier used by Nebula.
 	NetworkTestnet = "testnet"
 	// NetworkMainnet is the Stellar public network identifier used by Nebula.
-	NetworkMainnet = "mainnet"
+	NetworkMainnet                     = "mainnet"
+	minimumAccountReserveStroops int64 = 10_000_000
 )
 
 // Client wraps Horizon access and transaction submission for Nebula modules.
@@ -95,6 +97,90 @@ func (c *Client) SubmitEnvelopeXDR(txe string) (hProtocol.Transaction, error) {
 	return c.SubmitTransaction(tx)
 }
 
+// Balance loads the account balance and reports whether the account exists on-chain.
+func (c *Client) Balance(address string) (string, bool, error) {
+	account, err := c.Account(address)
+	if err != nil {
+		if horizonclient.IsNotFoundError(err) {
+			return FormatStroops(minimumAccountReserveStroops), false, nil
+		}
+		return "", false, err
+	}
+	balance, err := account.GetNativeBalance()
+	if err != nil {
+		return "", false, fmt.Errorf("read native balance: %w", err)
+	}
+	return balance, true, nil
+}
+
+// SendPayment signs and submits a reserve-aware native XLM payment.
+func (c *Client) SendPayment(secret, destination, amount, memo string) (string, error) {
+	if err := ValidateAddress(destination); err != nil {
+		return "", err
+	}
+	sendStroops, err := ParseAmountToStroops(amount)
+	if err != nil {
+		return "", err
+	}
+	full, err := parseFull(secret)
+	if err != nil {
+		return "", err
+	}
+	account, err := c.Account(full.Address())
+	if err != nil {
+		if horizonclient.IsNotFoundError(err) {
+			return "", ErrAccountNotFunded
+		}
+		return "", fmt.Errorf("reload account: %w", err)
+	}
+	nativeBalance, err := account.GetNativeBalance()
+	if err != nil {
+		return "", fmt.Errorf("read native balance: %w", err)
+	}
+	balanceStroops, err := ParseAmountToStroops(nativeBalance)
+	if err != nil {
+		return "", fmt.Errorf("parse balance: %w", err)
+	}
+	if sendStroops > balanceStroops-minimumAccountReserveStroops {
+		return "", ErrInsufficientBalance
+	}
+	tx, err := c.PaymentTx(account, destination, amount, memo)
+	if err != nil {
+		return "", err
+	}
+	signed, err := tx.Sign(c.passphrase, full)
+	if err != nil {
+		return "", fmt.Errorf("sign transaction: %w", err)
+	}
+	resp, err := c.SubmitTransaction(signed)
+	if err != nil {
+		return "", fmt.Errorf("submit transaction: %w", err)
+	}
+	return resp.Hash, nil
+}
+
+// FundTestnet requests Friendbot funding for a testnet account.
+func (c *Client) FundTestnet(address string) (string, error) {
+	if c.network != NetworkTestnet {
+		return "", ErrMainnetFriendbot
+	}
+	hash, err := withRateLimitRetry(func() (string, error) {
+		tx, fundErr := horizonclient.DefaultTestNetClient.Fund(strings.TrimSpace(address))
+		if fundErr != nil {
+			return "", fundErr
+		}
+		return tx.Hash, nil
+	})
+	if err != nil {
+		var hErr *horizonclient.Error
+		if errors.As(err, &hErr) && hErr.Problem.Status == 429 {
+			return "", ErrFriendbotLimit
+		}
+		return "", err
+	}
+	return hash, nil
+}
+
 // SignXDR appends a signature from the provided Stellar secret to a base64 XDR envelope.
 func (c *Client) SignXDR(txe, secret string) (string, string, error) {
 	full, err := parseFull(secret)
@@ -165,6 +251,78 @@ func parseFull(secret string) (*keypair.Full, error) {
 		return nil, fmt.Errorf("invalid Stellar secret key")
 	}
 	return kp, nil
+}
+
+// ValidateAddress rejects malformed Stellar public keys.
+func ValidateAddress(address string) error {
+	if _, err := keypair.ParseAddress(strings.TrimSpace(address)); err != nil {
+		return ErrInvalidAddress
+	}
+	return nil
+}
+
+var stroopMultiplier = big.NewInt(10_000_000)
+
+// ParseAmountToStroops converts an XLM decimal amount to stroops.
+func ParseAmountToStroops(raw string) (int64, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, ErrInvalidAmount
+	}
+	if strings.HasPrefix(value, "+") {
+		value = strings.TrimPrefix(value, "+")
+	}
+	if strings.HasPrefix(value, "-") {
+		return 0, ErrInvalidAmount
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) > 2 {
+		return 0, ErrInvalidAmount
+	}
+	intPart := parts[0]
+	if intPart == "" {
+		intPart = "0"
+	}
+	fracPart := ""
+	if len(parts) == 2 {
+		fracPart = parts[1]
+	}
+	if len(fracPart) > 7 {
+		return 0, ErrInvalidAmount
+	}
+	for len(fracPart) < 7 {
+		fracPart += "0"
+	}
+	whole, ok := new(big.Int).SetString(intPart, 10)
+	if !ok {
+		return 0, ErrInvalidAmount
+	}
+	fraction := big.NewInt(0)
+	if fracPart != "" {
+		var fracOK bool
+		fraction, fracOK = new(big.Int).SetString(fracPart, 10)
+		if !fracOK {
+			return 0, ErrInvalidAmount
+		}
+	}
+	total := new(big.Int).Mul(whole, stroopMultiplier)
+	total.Add(total, fraction)
+	if total.Sign() <= 0 || !total.IsInt64() {
+		return 0, ErrInvalidAmount
+	}
+	return total.Int64(), nil
+}
+
+// FormatStroops renders stroops as a decimal XLM string.
+func FormatStroops(stroops int64) string {
+	sign := ""
+	if stroops < 0 {
+		sign = "-"
+		stroops = -stroops
+	}
+	whole := stroops / 10_000_000
+	fraction := stroops % 10_000_000
+	return fmt.Sprintf("%s%d.%07d", sign, whole, fraction)
 }
 
 func withRateLimitRetry[T any](fn func() (T, error)) (T, error) {
