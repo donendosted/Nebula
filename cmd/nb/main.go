@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"nebula/indexer"
 	"nebula/multisig"
 	"nebula/nebula"
+	"nebula/stellar"
 	"nebula/wallet"
 
 	"github.com/spf13/cobra"
@@ -51,6 +54,9 @@ func newRootCmd(state *appState) *cobra.Command {
 	cmd.AddCommand(newWalletCmd())
 	cmd.AddCommand(newAccountCmd(state))
 	cmd.AddCommand(newTxCmd(state))
+	cmd.AddCommand(newIndexCmd(state))
+	cmd.AddCommand(newSearchCmd())
+	cmd.AddCommand(newStatsCmd())
 	cmd.AddCommand(newBalanceCmd(state))
 	cmd.AddCommand(newSendCmd(state))
 	cmd.AddCommand(newHistoryCmd(state))
@@ -58,6 +64,134 @@ func newRootCmd(state *appState) *cobra.Command {
 	cmd.AddCommand(newNetworkCmd(state))
 	cmd.AddCommand(newManCmd(cmd))
 
+	return cmd
+}
+
+func newIndexCmd(state *appState) *cobra.Command {
+	var account string
+	var limit int
+
+	cmd := &cobra.Command{
+		Use:   "index",
+		Short: "Manage the local transaction index",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
+	}
+	syncCmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Sync recent transactions into the local index",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			idx, err := indexer.NewStore()
+			if err != nil {
+				return err
+			}
+			defer idx.Close()
+			networkValue, err := resolveNetwork(state.networkOverride)
+			if err != nil {
+				return renderError(err)
+			}
+			client, err := stellar.NewClient(string(networkValue))
+			if err != nil {
+				return err
+			}
+			targets, err := syncTargets(account)
+			if err != nil {
+				return renderError(err)
+			}
+			total := 0
+			for _, target := range targets {
+				count, err := idx.SyncAccount(client, target, limit)
+				if err != nil {
+					return err
+				}
+				total += count
+			}
+			fmt.Println(total)
+			fmt.Fprintf(os.Stderr, "Index DB: %s\n", idx.DBDir())
+			return nil
+		},
+	}
+	syncCmd.Flags().StringVar(&account, "account", "", "sync only one account address")
+	syncCmd.Flags().IntVar(&limit, "limit", 200, "maximum recent records per account to sync")
+	cmd.AddCommand(syncCmd)
+	return cmd
+}
+
+func newSearchCmd() *cobra.Command {
+	var account string
+	var since string
+
+	cmd := &cobra.Command{
+		Use:   "search",
+		Short: "Query the local transaction index",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			idx, err := indexer.NewStore()
+			if err != nil {
+				return err
+			}
+			defer idx.Close()
+			duration, err := parseSince(since)
+			if err != nil {
+				return err
+			}
+			var records []indexer.Record
+			if strings.TrimSpace(account) != "" {
+				records, err = idx.SearchAccount(account, duration)
+			} else {
+				records, err = idx.SearchSince(duration)
+			}
+			if err != nil {
+				return err
+			}
+			for _, record := range records {
+				fmt.Printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+					record.Timestamp.Format(time.RFC3339),
+					record.Account,
+					record.Hash,
+					record.Direction,
+					record.Amount,
+					record.AssetCode,
+					record.Counterparty,
+					record.ExplorerURL,
+				)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&account, "account", "", "filter by account address")
+	cmd.Flags().StringVar(&since, "since", "24h", "look back duration")
+	return cmd
+}
+
+func newStatsCmd() *cobra.Command {
+	var account string
+
+	cmd := &cobra.Command{
+		Use:   "stats",
+		Short: "Show local transaction analytics",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			idx, err := indexer.NewStore()
+			if err != nil {
+				return err
+			}
+			defer idx.Close()
+			stats, err := idx.Stats(account)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("total_transactions\t%d\n", stats.TotalTransactions)
+			fmt.Printf("avg_latency_ms\t%.2f\n", stats.AverageLatencyMS)
+			fmt.Printf("total_volume_sent\t%.7f\n", stats.TotalVolumeSent)
+			fmt.Printf("total_volume_received\t%.7f\n", stats.TotalVolumeRecv)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&account, "account", "", "filter by account address")
 	return cmd
 }
 
@@ -789,4 +923,34 @@ func renderError(err error) error {
 	default:
 		return err
 	}
+}
+
+func parseSince(raw string) (time.Duration, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 24 * time.Hour, nil
+	}
+	return time.ParseDuration(raw)
+}
+
+func syncTargets(account string) ([]string, error) {
+	if strings.TrimSpace(account) != "" {
+		return []string{strings.TrimSpace(account)}, nil
+	}
+	store, err := newStore()
+	if err != nil {
+		return nil, err
+	}
+	defer store.Close()
+	items, err := store.ListWallets()
+	if err != nil {
+		return nil, err
+	}
+	targets := []string{}
+	for _, item := range items {
+		for _, derived := range item.Accounts {
+			targets = append(targets, derived.Address)
+		}
+	}
+	return targets, nil
 }
