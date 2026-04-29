@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"nebula/nebula"
+	"nebula/wallet"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -16,6 +17,12 @@ import (
 type appState struct {
 	networkOverride string
 	verbose         bool
+}
+
+type unlockedSession struct {
+	Wallet  wallet.WalletSummary
+	Account wallet.DerivedAccount
+	Secret  string
 }
 
 func main() {
@@ -40,137 +47,203 @@ func newRootCmd(state *appState) *cobra.Command {
 	cmd.CompletionOptions.DisableDefaultCmd = false
 	cmd.InitDefaultCompletionCmd()
 
-	cmd.AddCommand(newWalletCmd(state))
+	cmd.AddCommand(newWalletCmd())
 	cmd.AddCommand(newBalanceCmd(state))
 	cmd.AddCommand(newSendCmd(state))
 	cmd.AddCommand(newHistoryCmd(state))
 	cmd.AddCommand(newFundCmd(state))
 	cmd.AddCommand(newNetworkCmd(state))
-	cmd.AddCommand(newManCmd(state, cmd))
+	cmd.AddCommand(newManCmd(cmd))
 
 	return cmd
 }
 
-func newWalletCmd(state *appState) *cobra.Command {
-	var name string
+func newWalletCmd() *cobra.Command {
+	var createName string
+	var createWords int
+	var importName string
+	var deriveName string
+	var deriveIndex uint32
+	var switchIndex uint32
 
 	cmd := &cobra.Command{
 		Use:   "wallet",
-		Short: "Manage encrypted wallets",
+		Short: "Manage encrypted HD wallet roots and derived accounts",
 	}
 
-	createCmd := &cobra.Command{
+	cmd.AddCommand(&cobra.Command{
 		Use:   "create",
-		Short: "Create a new encrypted wallet",
+		Short: "Create a new encrypted HD wallet root",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := newStore()
 			if err != nil {
 				return err
 			}
+			defer store.Close()
 			passphrase, err := promptPassphrase("Choose wallet passphrase: ", true)
 			if err != nil {
 				return err
 			}
-			result, err := store.CreateWallet(name, passphrase)
+			summary, mnemonic, err := store.CreateWallet(wallet.CreateOptions{
+				Name:       createName,
+				Passphrase: passphrase,
+				Words:      createWords,
+			})
 			if err != nil {
 				return renderError(err)
 			}
-			fmt.Println(result.Address)
-			fmt.Fprintf(os.Stderr, "Created wallet %q and set active\n", result.Name)
-			fmt.Fprintf(os.Stderr, "Wallet metadata directory: %s\n", store.WalletsDir())
-			fmt.Fprintf(os.Stderr, "Active wallet file: %s\n", result.SecretPath)
+			fmt.Println(summary.Accounts[0].Address)
+			fmt.Fprintf(os.Stderr, "Created wallet %q with active account %d\n", summary.Name, summary.Accounts[0].Index)
+			fmt.Fprintf(os.Stderr, "Mnemonic (store offline): %s\n", mnemonic)
+			fmt.Fprintf(os.Stderr, "Encrypted wallet DB: %s\n", store.DBDir())
 			return nil
 		},
-	}
-	createCmd.Flags().StringVar(&name, "name", "", "wallet name")
+	})
+	cmd.Commands()[0].Flags().StringVar(&createName, "name", "", "wallet name")
+	cmd.Commands()[0].Flags().IntVar(&createWords, "words", 24, "mnemonic size: 12 or 24")
 
-	importCmd := &cobra.Command{
-		Use:   "import <secret>",
-		Short: "Import an existing Stellar secret",
+	cmd.AddCommand(&cobra.Command{
+		Use:   "import <mnemonic>",
+		Short: "Import an existing BIP39 mnemonic",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := newStore()
 			if err != nil {
 				return err
 			}
+			defer store.Close()
 			passphrase, err := promptPassphrase("Choose wallet passphrase: ", true)
 			if err != nil {
 				return err
 			}
-			result, err := store.ImportWallet(name, args[0], passphrase)
+			summary, err := store.ImportWallet(wallet.ImportOptions{
+				Name:       importName,
+				Mnemonic:   args[0],
+				Passphrase: passphrase,
+			})
 			if err != nil {
 				return renderError(err)
 			}
-			fmt.Println(result.Address)
-			fmt.Fprintf(os.Stderr, "Imported wallet %q and set active\n", result.Name)
-			fmt.Fprintf(os.Stderr, "Wallet metadata directory: %s\n", store.WalletsDir())
-			fmt.Fprintf(os.Stderr, "Active wallet file: %s\n", result.SecretPath)
+			fmt.Println(summary.Accounts[0].Address)
+			fmt.Fprintf(os.Stderr, "Imported wallet %q with active account %d\n", summary.Name, summary.Accounts[0].Index)
+			fmt.Fprintf(os.Stderr, "Encrypted wallet DB: %s\n", store.DBDir())
 			return nil
 		},
-	}
-	importCmd.Flags().StringVar(&name, "name", "", "wallet name")
+	})
+	cmd.Commands()[1].Flags().StringVar(&importName, "name", "", "wallet name")
 
-	addressCmd := &cobra.Command{
-		Use:   "address",
-		Short: "Print the active wallet address",
-		Args:  cobra.NoArgs,
+	cmd.AddCommand(&cobra.Command{
+		Use:   "derive <wallet-id|name>",
+		Short: "Derive and persist another account under a wallet root",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			unlocked, _, err := unlockActiveWallet()
+			store, err := newStore()
+			if err != nil {
+				return err
+			}
+			defer store.Close()
+			passphrase, err := promptPassphrase("Wallet passphrase: ", false)
+			if err != nil {
+				return err
+			}
+			account, err := store.Derive(args[0], passphrase, deriveIndex, deriveName)
 			if err != nil {
 				return renderError(err)
 			}
-			fmt.Println(unlocked.Meta.Address)
+			fmt.Println(account.Address)
+			fmt.Fprintf(os.Stderr, "Derived account %d at %s under wallet %s\n", account.Index, account.Path, account.WalletID)
 			return nil
 		},
-	}
+	})
+	cmd.Commands()[2].Flags().Uint32Var(&deriveIndex, "index", 1, "HD account index to derive")
+	cmd.Commands()[2].Flags().StringVar(&deriveName, "name", "", "optional derived account label")
 
-	listCmd := &cobra.Command{
+	cmd.AddCommand(&cobra.Command{
 		Use:   "list",
-		Short: "List saved wallets",
+		Short: "List wallet roots and locally derived accounts",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := newStore()
 			if err != nil {
 				return err
 			}
-			wallets, err := store.ListWallets()
+			defer store.Close()
+			items, err := store.ListWallets()
 			if err != nil {
 				return renderError(err)
 			}
-			for _, item := range wallets {
-				status := "inactive"
-				if item.Active {
-					status = "active"
+			for _, item := range items {
+				for _, account := range item.Accounts {
+					status := "inactive"
+					if item.Active && account.Index == item.ActiveAccountIndex {
+						status = "active"
+					}
+					fmt.Printf("%s\t%s\t%d\t%s\t%s\t%s\n", item.ID, item.Name, account.Index, account.Address, status, account.Path)
 				}
-				fmt.Printf("%s\t%s\t%s\t%s\n", item.Name, item.Address, status, item.SecretPath)
 			}
-			fmt.Fprintf(os.Stderr, "Wallet metadata directory: %s\n", store.WalletsDir())
+			fmt.Fprintf(os.Stderr, "Encrypted wallet DB: %s\n", store.DBDir())
 			return nil
 		},
-	}
+	})
 
-	switchCmd := &cobra.Command{
-		Use:   "switch <name|address>",
-		Short: "Switch the active wallet",
+	cmd.AddCommand(&cobra.Command{
+		Use:   "switch <wallet-id|name>",
+		Short: "Switch the active wallet root and account index",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			store, err := newStore()
 			if err != nil {
 				return err
 			}
-			result, err := store.SwitchActiveWallet(args[0])
+			defer store.Close()
+			if err := store.SetActiveWallet(args[0], switchIndex); err != nil {
+				return renderError(err)
+			}
+			summary, err := store.Wallet(args[0])
 			if err != nil {
 				return renderError(err)
 			}
-			fmt.Println(result.Address)
-			fmt.Fprintf(os.Stderr, "Active wallet switched to %q\n", result.Name)
-			fmt.Fprintf(os.Stderr, "Active wallet file: %s\n", result.SecretPath)
-			return nil
+			for _, account := range summary.Accounts {
+				if account.Index == switchIndex {
+					fmt.Println(account.Address)
+					fmt.Fprintf(os.Stderr, "Active wallet switched to %q account %d\n", summary.Name, switchIndex)
+					return nil
+				}
+			}
+			return renderError(wallet.ErrAccountNotDerived)
 		},
-	}
+	})
+	cmd.Commands()[4].Flags().Uint32Var(&switchIndex, "account-index", 0, "derived account index to activate")
 
-	cmd.AddCommand(createCmd, importCmd, addressCmd, listCmd, switchCmd)
+	cmd.AddCommand(&cobra.Command{
+		Use:   "address",
+		Short: "Print the active derived wallet address",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := newStore()
+			if err != nil {
+				return err
+			}
+			defer store.Close()
+			cfg, err := store.Config()
+			if err != nil {
+				return renderError(err)
+			}
+			summary, err := store.Wallet(cfg.ActiveWalletID)
+			if err != nil {
+				return renderError(err)
+			}
+			for _, account := range summary.Accounts {
+				if account.Index == cfg.ActiveAccountIndex {
+					fmt.Println(account.Address)
+					return nil
+				}
+			}
+			return renderError(wallet.ErrAccountNotDerived)
+		},
+	})
+
 	return cmd
 }
 
@@ -188,11 +261,11 @@ func newBalanceCmd(state *appState) *cobra.Command {
 			if err != nil {
 				return renderError(err)
 			}
-			info.Name = unlocked.Meta.Name
+			info.Name = unlocked.Wallet.Name
 			if !info.Funded {
 				return fmt.Errorf("Account not funded. Run `nb fund` on testnet or send XLM to %s", info.Address)
 			}
-			fmt.Printf("%s\t%s\t%s\t%s\n", info.Name, networkValue, nebula.AssetCodeXLM, nativeBalance(info))
+			fmt.Printf("%s\t%d\t%s\t%s\t%s\n", info.Name, unlocked.Account.Index, networkValue, nebula.AssetCodeXLM, nativeBalance(info))
 			return nil
 		},
 	}
@@ -267,7 +340,7 @@ func newFundCmd(state *appState) *cobra.Command {
 		Short: "Fund the active wallet with Friendbot on testnet",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			client, unlocked, networkValue, err := resolveClient(state)
+			client, _, networkValue, err := resolveClient(state)
 			if err != nil {
 				return renderError(err)
 			}
@@ -279,19 +352,8 @@ func newFundCmd(state *appState) *cobra.Command {
 				}
 				return renderError(err)
 			}
-			store, err := newStore()
-			if err != nil {
-				return err
-			}
-			count, err := store.RecordTestnetFunding(unlocked.Meta.Address)
-			if err != nil {
-				return err
-			}
 			fmt.Println(hash)
-			if count > 2 {
-				count = 2
-			}
-			fmt.Fprintf(os.Stderr, "Funded %d/2 times on %s\n", count, networkValue)
+			fmt.Fprintf(os.Stderr, "Friendbot funding submitted on %s\n", networkValue)
 			return nil
 		},
 	}
@@ -303,15 +365,11 @@ func newNetworkCmd(state *appState) *cobra.Command {
 		Short: "Show or change the persisted network",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			store, err := newStore()
-			if err != nil {
-				return err
-			}
-			current, err := resolveNetwork(store, state.networkOverride)
+			networkValue, err := resolveNetwork(state.networkOverride)
 			if err != nil {
 				return renderError(err)
 			}
-			fmt.Println(current)
+			fmt.Println(networkValue)
 			return nil
 		},
 	}
@@ -325,8 +383,12 @@ func newNetworkCmd(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer store.Close()
 			networkValue := nebula.Network(strings.ToLower(strings.TrimSpace(args[0])))
-			if err := store.SetNetwork(networkValue); err != nil {
+			if !networkValue.Valid() {
+				return renderError(nebula.ErrUnsupportedNetwork)
+			}
+			if err := store.SetNetwork(string(networkValue)); err != nil {
 				return renderError(err)
 			}
 			fmt.Println(networkValue)
@@ -343,6 +405,7 @@ func newNetworkCmd(state *appState) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer store.Close()
 			networkValue, err := store.ToggleNetwork()
 			if err != nil {
 				return renderError(err)
@@ -355,7 +418,7 @@ func newNetworkCmd(state *appState) *cobra.Command {
 	return cmd
 }
 
-func newManCmd(state *appState, root *cobra.Command) *cobra.Command {
+func newManCmd(root *cobra.Command) *cobra.Command {
 	return &cobra.Command{
 		Use:   "man",
 		Short: "Print the full Nebula command manual",
@@ -367,46 +430,47 @@ func newManCmd(state *appState, root *cobra.Command) *cobra.Command {
 	}
 }
 
-func newStore() (*nebula.Store, error) {
-	return nebula.NewStore()
+func newStore() (*wallet.Store, error) {
+	return wallet.NewStore()
 }
 
-func resolveClient(state *appState) (*nebula.Client, nebula.UnlockedWallet, nebula.Network, error) {
-	unlocked, store, err := unlockActiveWallet()
+func resolveClient(state *appState) (*nebula.Client, unlockedSession, nebula.Network, error) {
+	unlocked, err := unlockActiveWallet()
 	if err != nil {
-		return nil, nebula.UnlockedWallet{}, "", err
+		return nil, unlockedSession{}, "", err
 	}
-	networkValue, err := resolveNetwork(store, state.networkOverride)
+	networkValue, err := resolveNetwork(state.networkOverride)
 	if err != nil {
-		return nil, nebula.UnlockedWallet{}, "", err
+		return nil, unlockedSession{}, "", err
 	}
-	client, err := unlocked.Client(networkValue)
+	client, err := nebula.NewClient(unlocked.Secret, networkValue)
 	if err != nil {
-		return nil, nebula.UnlockedWallet{}, "", err
+		return nil, unlockedSession{}, "", err
 	}
 	if state.verbose {
-		fmt.Fprintf(os.Stderr, "Using wallet %q (%s) on %s\n", unlocked.Meta.Name, unlocked.Meta.Address, networkValue)
+		fmt.Fprintf(os.Stderr, "Using wallet %q account %d (%s) on %s\n", unlocked.Wallet.Name, unlocked.Account.Index, unlocked.Account.Address, networkValue)
 	}
 	return client, unlocked, networkValue, nil
 }
 
-func unlockActiveWallet() (nebula.UnlockedWallet, *nebula.Store, error) {
+func unlockActiveWallet() (unlockedSession, error) {
 	store, err := newStore()
 	if err != nil {
-		return nebula.UnlockedWallet{}, nil, err
+		return unlockedSession{}, err
 	}
+	defer store.Close()
 	passphrase, err := promptPassphrase("Wallet passphrase: ", false)
 	if err != nil {
-		return nebula.UnlockedWallet{}, nil, err
+		return unlockedSession{}, err
 	}
-	unlocked, err := store.UnlockActiveWallet(passphrase)
+	summary, account, secret, err := store.ActiveAccount(passphrase)
 	if err != nil {
-		return nebula.UnlockedWallet{}, nil, err
+		return unlockedSession{}, err
 	}
-	return unlocked, store, nil
+	return unlockedSession{Wallet: summary, Account: account, Secret: secret}, nil
 }
 
-func resolveNetwork(store *nebula.Store, override string) (nebula.Network, error) {
+func resolveNetwork(override string) (nebula.Network, error) {
 	if strings.TrimSpace(override) != "" {
 		networkValue := nebula.Network(strings.ToLower(strings.TrimSpace(override)))
 		if !networkValue.Valid() {
@@ -414,7 +478,16 @@ func resolveNetwork(store *nebula.Store, override string) (nebula.Network, error
 		}
 		return networkValue, nil
 	}
-	return store.CurrentNetwork()
+	store, err := newStore()
+	if err != nil {
+		return "", err
+	}
+	defer store.Close()
+	networkValue := nebula.Network(store.CurrentNetwork())
+	if !networkValue.Valid() {
+		return "", nebula.ErrUnsupportedNetwork
+	}
+	return networkValue, nil
 }
 
 func promptPassphrase(prompt string, confirm bool) (string, error) {
@@ -492,6 +565,16 @@ func nativeBalance(info nebula.AccountInfo) string {
 
 func renderError(err error) error {
 	switch {
+	case errors.Is(err, wallet.ErrWalletNotFound):
+		return fmt.Errorf("wallet not found")
+	case errors.Is(err, wallet.ErrInvalidPassphrase):
+		return fmt.Errorf("invalid passphrase")
+	case errors.Is(err, wallet.ErrInvalidMnemonic):
+		return fmt.Errorf("invalid mnemonic")
+	case errors.Is(err, wallet.ErrInvalidWordsCount):
+		return fmt.Errorf("mnemonic words must be 12 or 24")
+	case errors.Is(err, wallet.ErrAccountNotDerived):
+		return fmt.Errorf("account index not derived in active wallet")
 	case errors.Is(err, nebula.ErrInvalidAddress):
 		return fmt.Errorf("invalid address")
 	case errors.Is(err, nebula.ErrInvalidAmount):
