@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"nebula/multisig"
 	"nebula/nebula"
 	"nebula/wallet"
 
@@ -48,12 +49,212 @@ func newRootCmd(state *appState) *cobra.Command {
 	cmd.InitDefaultCompletionCmd()
 
 	cmd.AddCommand(newWalletCmd())
+	cmd.AddCommand(newAccountCmd(state))
+	cmd.AddCommand(newTxCmd(state))
 	cmd.AddCommand(newBalanceCmd(state))
 	cmd.AddCommand(newSendCmd(state))
 	cmd.AddCommand(newHistoryCmd(state))
 	cmd.AddCommand(newFundCmd(state))
 	cmd.AddCommand(newNetworkCmd(state))
 	cmd.AddCommand(newManCmd(cmd))
+
+	return cmd
+}
+
+func newAccountCmd(state *appState) *cobra.Command {
+	var weight uint8
+	var low uint8
+	var medium uint8
+	var high uint8
+	var master uint8
+	var yes bool
+
+	cmd := &cobra.Command{
+		Use:   "account",
+		Short: "Manage Stellar signers and thresholds",
+	}
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "add-signer <address>",
+		Short: "Add or update a signer on the active account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			unlocked, err := unlockActiveWallet()
+			if err != nil {
+				return renderError(err)
+			}
+			networkValue, err := resolveNetwork(state.networkOverride)
+			if err != nil {
+				return renderError(err)
+			}
+			store, err := newStore()
+			if err != nil {
+				return err
+			}
+			defer store.Close()
+			service := multisig.NewService(store)
+			hash, err := service.AddSigner(unlocked.Secret, string(networkValue), args[0], weight, yes)
+			if err != nil {
+				return renderError(err)
+			}
+			fmt.Println(hash)
+			return nil
+		},
+	})
+	cmd.Commands()[0].Flags().Uint8Var(&weight, "weight", 1, "signer weight")
+	cmd.Commands()[0].Flags().BoolVar(&yes, "yes", false, "confirm sensitive signer change")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "remove-signer <address>",
+		Short: "Remove a signer from the active account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			unlocked, err := unlockActiveWallet()
+			if err != nil {
+				return renderError(err)
+			}
+			networkValue, err := resolveNetwork(state.networkOverride)
+			if err != nil {
+				return renderError(err)
+			}
+			store, err := newStore()
+			if err != nil {
+				return err
+			}
+			defer store.Close()
+			service := multisig.NewService(store)
+			hash, err := service.RemoveSigner(unlocked.Secret, string(networkValue), args[0], yes)
+			if err != nil {
+				return renderError(err)
+			}
+			fmt.Println(hash)
+			return nil
+		},
+	})
+	cmd.Commands()[1].Flags().BoolVar(&yes, "yes", false, "confirm sensitive signer change")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "set-threshold",
+		Short: "Set low, medium, high, and master thresholds",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			unlocked, err := unlockActiveWallet()
+			if err != nil {
+				return renderError(err)
+			}
+			networkValue, err := resolveNetwork(state.networkOverride)
+			if err != nil {
+				return renderError(err)
+			}
+			store, err := newStore()
+			if err != nil {
+				return err
+			}
+			defer store.Close()
+			service := multisig.NewService(store)
+			hash, err := service.SetThresholds(unlocked.Secret, string(networkValue), multisig.ThresholdConfig{
+				MasterWeight: master,
+				Low:          low,
+				Medium:       medium,
+				High:         high,
+			}, yes)
+			if err != nil {
+				return renderError(err)
+			}
+			fmt.Println(hash)
+			return nil
+		},
+	})
+	cmd.Commands()[2].Flags().Uint8Var(&low, "low", 1, "low threshold")
+	cmd.Commands()[2].Flags().Uint8Var(&medium, "medium", 2, "medium threshold")
+	cmd.Commands()[2].Flags().Uint8Var(&high, "high", 2, "high threshold")
+	cmd.Commands()[2].Flags().Uint8Var(&master, "master", 1, "master key weight")
+	cmd.Commands()[2].Flags().BoolVar(&yes, "yes", false, "confirm sensitive threshold change")
+
+	return cmd
+}
+
+func newTxCmd(state *appState) *cobra.Command {
+	var memo string
+	cmd := &cobra.Command{
+		Use:   "tx",
+		Short: "Manage multisig transaction proposals",
+	}
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "propose <address> <amount>",
+		Short: "Create a multisig payment proposal",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			unlocked, err := unlockActiveWallet()
+			if err != nil {
+				return renderError(err)
+			}
+			networkValue, err := resolveNetwork(state.networkOverride)
+			if err != nil {
+				return renderError(err)
+			}
+			store, err := newStore()
+			if err != nil {
+				return err
+			}
+			defer store.Close()
+			service := multisig.NewService(store)
+			proposal, err := service.ProposePayment(unlocked.Secret, string(networkValue), unlocked.Wallet.ID, unlocked.Account.Index, args[0], args[1], memo)
+			if err != nil {
+				return renderError(err)
+			}
+			fmt.Println(proposal.ID)
+			fmt.Fprintf(os.Stderr, "Proposal saved: %s/%s.json\n", store.ProposalDir(), proposal.ID)
+			return nil
+		},
+	})
+	cmd.Commands()[0].Flags().StringVar(&memo, "memo", "", "optional text memo")
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "sign <proposal-id>",
+		Short: "Sign a stored multisig proposal with the active account",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			unlocked, err := unlockActiveWallet()
+			if err != nil {
+				return renderError(err)
+			}
+			store, err := newStore()
+			if err != nil {
+				return err
+			}
+			defer store.Close()
+			service := multisig.NewService(store)
+			proposal, err := service.SignProposal(unlocked.Secret, args[0])
+			if err != nil {
+				return renderError(err)
+			}
+			fmt.Println(proposal.ID)
+			fmt.Fprintf(os.Stderr, "Proposal signatures: %d\n", len(proposal.Signers))
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "submit <proposal-id>",
+		Short: "Submit a stored multisig proposal",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			store, err := newStore()
+			if err != nil {
+				return err
+			}
+			defer store.Close()
+			service := multisig.NewService(store)
+			hash, err := service.SubmitProposal(args[0])
+			if err != nil {
+				return renderError(err)
+			}
+			fmt.Println(hash)
+			return nil
+		},
+	})
 
 	return cmd
 }
