@@ -388,27 +388,49 @@ Nebula emphasizes local custody, encrypted secret storage, safe transaction vali
 
 **Link: completed security checklist**
 
-- Local checklist: [security_checklist.md](./security_checklist.md)
 - Architecture reference: [ARCHITECTURE.md](./ARCHITECTURE.md)
-- TODO: replace with a public hosted checklist link if you want an external submission-ready reference.
 
-Current security posture includes:
+### Implemented
 
-- encrypted HD wallet storage with AES-256-GCM and scrypt in [wallet/crypto.go](./wallet/crypto.go)
-- no plaintext mnemonic persistence in [wallet/store.go](./wallet/store.go)
-- reserve-aware payment validation in [stellar/client.go](./stellar/client.go)
-- multisig threshold safety checks in [multisig/service.go](./multisig/service.go)
-- proposal file permissions and local-only storage in [multisig/service.go](./multisig/service.go)
-- read-only Badger access for TUI database safety in [internal/db/db.go](./internal/db/db.go)
+- Encrypted HD wallet storage
+  - Mnemonics are encrypted at rest with AES-256-GCM.
+  - Key derivation uses `scrypt`.
+  - Reference: [wallet/crypto.go](/home/dos/project-nebula/codex/wallet/crypto.go:1)
+- No plaintext mnemonic persistence
+  - The wallet database stores encrypted mnemonic material and metadata, not plaintext Stellar secrets.
+  - Reference: [wallet/store.go](/home/dos/project-nebula/codex/wallet/store.go:17)
+- Read-only database mode for TUI
+  - `nbtui` can open the wallet/index stores in read-only mode to avoid unsafe concurrent writes.
+  - Reference: [internal/db/db.go](/home/dos/project-nebula/codex/internal/db/db.go:1)
+- Local file permissions on multisig proposal files
+  - Proposal files are written with `0600`.
+  - Reference: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:222)
+- Multisig threshold safety validation
+  - Threshold ordering is validated.
+  - Signer changes are rejected when they would obviously reduce total signer weight below the high threshold.
+  - Reference: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:282)
+- Reserve-aware payment validation
+  - Sends are checked against minimum reserve logic before submission.
+  - Reference: [stellar/client.go](/home/dos/project-nebula/codex/stellar/client.go:112)
+- Sequence reloading before transaction submission
+  - Account state is reloaded from Horizon before payment/proposal submission to reduce stale-sequence failures.
+  - Reference: [stellar/client.go](/home/dos/project-nebula/codex/stellar/client.go:58)
+  - Reference: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:180)
+- Explicit confirmation gates for sensitive wallet and signer actions
+  - Sensitive actions require explicit confirmation instead of silent mutation.
+  - Reference: [wallet/store.go](/home/dos/project-nebula/codex/wallet/store.go:344)
+  - Reference: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:28)
 
-Additional security items you can still add:
+### Partially Implemented
 
-- secure mnemonic import from `stdin` instead of CLI args
-- local multisig quorum verification before `tx submit`
-- tamper-evident or encrypted proposal files
-- OS keyring integration for passphrase storage
-- security event logging for signer changes and proposal actions
-- memory zeroization for decrypted wallet material where practical
+- Multi-party approval flow
+  - Nebula supports propose/sign/submit, but local quorum verification is incomplete.
+  - The Stellar network still enforces the final signer/threshold rules at submit time.
+- Local observability
+  - Prometheus-style metrics and TUI monitoring exist, but this is operational visibility, not a substitute for security audit logging.
+- Encrypted wallet storage
+  - Secrets are encrypted at rest, but decrypted material is still present in process memory during active use.
+
 
 ## Advanced Features for Black Belt
 
