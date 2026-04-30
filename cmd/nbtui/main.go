@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"nebula/indexer"
+	"nebula/internal/metrics"
+	"nebula/internal/monitoring"
+	tuiview "nebula/internal/tui"
 	"nebula/multisig"
 	"nebula/stellar"
 	"nebula/wallet"
@@ -28,6 +31,7 @@ const (
 	modeSend     viewMode = "send"
 	modePropose  viewMode = "propose"
 	modeHistory  viewMode = "history"
+	modeMonitor  viewMode = "monitor"
 	modeSettings viewMode = "settings"
 	modeWallets  viewMode = "wallets"
 	modeCreate   viewMode = "create"
@@ -91,6 +95,10 @@ type proposalMsg struct {
 	Err      error
 }
 
+type monitorMsg struct {
+	Snapshot metrics.Snapshot
+}
+
 type networkMsg struct {
 	Network string
 	Err     error
@@ -105,6 +113,10 @@ type clipboardMsg struct {
 	Err error
 }
 
+type dashboardMsg struct {
+	Err error
+}
+
 type model struct {
 	store   *wallet.Store
 	network string
@@ -115,6 +127,7 @@ type model struct {
 	wallets    []walletItem
 	history    []indexer.Record
 	account    accountState
+	monitoring metrics.Snapshot
 
 	loading    bool
 	status     string
@@ -136,6 +149,7 @@ type model struct {
 }
 
 func main() {
+	metrics.EnsureServer()
 	store, err := wallet.NewStore()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -315,6 +329,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.memoInput.SetValue("")
 		m.mode = modeHome
 		return m, nil
+	case monitorMsg:
+		m.monitoring = msg.Snapshot
+		if m.mode == modeMonitor {
+			return m, tea.Tick(5*time.Second, func(time.Time) tea.Msg { return monitorMsg{Snapshot: metrics.SnapshotNow()} })
+		}
+		return m, nil
 	case networkMsg:
 		m.loading = false
 		if msg.Err != nil {
@@ -358,6 +378,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errMessage = ""
 		m.status = "Address copied to clipboard"
 		return m, nil
+	case dashboardMsg:
+		if msg.Err != nil {
+			m.errMessage = msg.Err.Error()
+			return m, nil
+		}
+		m.errMessage = ""
+		m.status = "Dashboard opened in browser"
+		return m, nil
 	case tea.KeyMsg:
 		if msg.String() != "q" {
 			m.quitArmed = false
@@ -390,6 +418,9 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "Press q again to quit."
 		return m, nil
 	case "r":
+		if m.mode == modeMonitor {
+			return m, m.loadMonitorCmd()
+		}
 		if m.session == nil {
 			return m, nil
 		}
@@ -424,6 +455,10 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.mode = modeSettings
 		return m, nil
+	case "m":
+		metrics.RecordWalletAction("watch", "tui monitor")
+		m.mode = modeMonitor
+		return m, m.loadMonitorCmd()
 	case "w":
 		m.mode = modeWallets
 		m.loading = true
@@ -439,6 +474,10 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, copyAddressCmd(m.session.Account.Address)
+	case "o":
+		if m.mode == modeMonitor {
+			return m, openDashboardCmd()
+		}
 	case "i":
 		if m.mode == modeWelcome || m.mode == modeWallets {
 			m.mode = modeImport
@@ -647,6 +686,8 @@ func (m model) View() string {
 		content = append(content, m.homeView(), "", m.historyView())
 	case modeSettings:
 		content = append(content, m.homeView(), "", m.settingsView())
+	case modeMonitor:
+		content = append(content, m.homeView(), "", m.monitorView())
 	case modeWallets:
 		content = append(content, m.homeView(), "", m.walletsView())
 	case modeCreate:
@@ -718,6 +759,7 @@ func (m model) homeView() string {
 		"[s] Send",
 		"[p] Propose tx",
 		"[h] History",
+		"[m] Monitor",
 		"[r] Refresh",
 		"[w] Wallets",
 		"[n] Toggle network",
@@ -728,6 +770,10 @@ func (m model) homeView() string {
 		"[q] Quit",
 	}, "\n"))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+}
+
+func (m model) monitorView() string {
+	return tuiview.RenderMonitoringPanel(m.monitoring, monitoring.GrafanaURL)
 }
 
 func (m model) sendView(title string) string {
@@ -896,6 +942,12 @@ func (m model) loadHistoryCmd() tea.Cmd {
 	}
 }
 
+func (m model) loadMonitorCmd() tea.Cmd {
+	return func() tea.Msg {
+		return monitorMsg{Snapshot: metrics.SnapshotNow()}
+	}
+}
+
 func (m model) sendCmd() tea.Cmd {
 	if m.session == nil {
 		return nil
@@ -1021,6 +1073,12 @@ func (m model) importWalletCmd(name, mnemonic, passphrase string) tea.Cmd {
 func copyAddressCmd(address string) tea.Cmd {
 	return func() tea.Msg {
 		return clipboardMsg{Err: clipboard.WriteAll(address)}
+	}
+}
+
+func openDashboardCmd() tea.Cmd {
+	return func() tea.Msg {
+		return dashboardMsg{Err: monitoring.OpenBrowser(monitoring.GrafanaURL)}
 	}
 }
 
