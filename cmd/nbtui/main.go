@@ -29,6 +29,7 @@ const (
 	modeWelcome  viewMode = "welcome"
 	modeLogin    viewMode = "login"
 	modeHome     viewMode = "home"
+	modeHelp     viewMode = "help"
 	modeSend     viewMode = "send"
 	modePropose  viewMode = "propose"
 	modeHistory  viewMode = "history"
@@ -114,7 +115,7 @@ type clipboardMsg struct {
 	Err error
 }
 
-type dashboardMsg struct {
+type browserMsg struct {
 	Err error
 }
 
@@ -384,13 +385,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errMessage = ""
 		m.status = "Address copied to clipboard"
 		return m, nil
-	case dashboardMsg:
+	case browserMsg:
 		if msg.Err != nil {
 			m.errMessage = msg.Err.Error()
 			return m, nil
 		}
 		m.errMessage = ""
-		m.status = "Dashboard opened in browser"
+		m.status = "Prometheus opened in browser"
 		return m, nil
 	case tea.KeyMsg:
 		if msg.String() != "q" {
@@ -461,6 +462,9 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		m.mode = modeSettings
 		return m, nil
+	case "H", "?":
+		m.mode = modeHelp
+		return m, nil
 	case "m":
 		metrics.RecordWalletAction("watch", "tui monitor")
 		m.mode = modeMonitor
@@ -482,7 +486,7 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, copyAddressCmd(m.session.Account.Address)
 	case "o":
 		if m.mode == modeMonitor {
-			return m, openDashboardCmd()
+			return m, openPrometheusCmd()
 		}
 	case "i":
 		if m.mode == modeWelcome || m.mode == modeWallets {
@@ -692,6 +696,8 @@ func (m model) View() string {
 		content = append(content, m.loginView())
 	case modeHome:
 		content = append(content, m.homeView())
+	case modeHelp:
+		content = append(content, m.helpView())
 	case modeSend:
 		content = append(content, m.homeView(), "", m.sendView("Send"))
 	case modePropose:
@@ -774,6 +780,7 @@ func (m model) homeView() string {
 		"[p] Propose tx",
 		"[h] History",
 		"[m] Monitor",
+		"[H] Help",
 		"[r] Refresh",
 		"[w] Wallets",
 		"[n] Toggle network",
@@ -787,7 +794,41 @@ func (m model) homeView() string {
 }
 
 func (m model) monitorView() string {
-	return tuiview.RenderMonitoringPanel(m.monitoring, monitoring.GrafanaURL)
+	return tuiview.RenderMonitoringPanel(m.monitoring, monitoring.PrometheusURL)
+}
+
+func (m model) helpView() string {
+	box := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(1)
+	lines := []string{
+		"Actions Help",
+		"",
+		"Global:",
+		"  [H] or [?] Help",
+		"  [q] Quit",
+		"  [n] Toggle network",
+		"  [w] Wallets",
+		"  [c] Settings",
+		"  [m] Monitor",
+		"  [r] Refresh",
+		"  [o] Open Prometheus (from Monitor)",
+		"  [y] Copy address",
+		"  [l] Lock",
+		"",
+		"Wallet flows:",
+		"  [a] Create wallet",
+		"  [i] Import wallet",
+		"  [s] Send",
+		"  [p] Propose multisig tx",
+		"  [h] History",
+		"  [f] Friendbot (testnet)",
+		"",
+		"Navigation:",
+		"  [tab]/[shift+tab] Move fields",
+		"  [j]/[k] or arrows Move wallet list",
+		"  [enter] Submit current action",
+		"  [esc] Back",
+	}
+	return box.Render(strings.Join(lines, "\n"))
 }
 
 func (m model) sendView(title string) string {
@@ -1098,9 +1139,9 @@ func copyAddressCmd(address string) tea.Cmd {
 	}
 }
 
-func openDashboardCmd() tea.Cmd {
+func openPrometheusCmd() tea.Cmd {
 	return func() tea.Msg {
-		return dashboardMsg{Err: monitoring.OpenBrowser(monitoring.GrafanaURL)}
+		return browserMsg{Err: monitoring.OpenBrowser(monitoring.PrometheusURL)}
 	}
 }
 

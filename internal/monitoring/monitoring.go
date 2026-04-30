@@ -11,8 +11,6 @@ import (
 const (
 	// PrometheusURL is the default local Prometheus UI.
 	PrometheusURL = "http://localhost:9090"
-	// GrafanaURL is the default local Grafana dashboard URL after import.
-	GrafanaURL = "http://localhost:3000/d/nebula-local/nebula-local"
 )
 
 // URLs returns the local observability entrypoints.
@@ -20,7 +18,6 @@ func URLs() map[string]string {
 	return map[string]string{
 		"metrics":    metrics.MetricsURL(),
 		"prometheus": PrometheusURL,
-		"grafana":    GrafanaURL,
 	}
 }
 

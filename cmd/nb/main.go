@@ -205,7 +205,7 @@ func newMonitorCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "monitor",
-		Short: "Run the local monitoring endpoint and print dashboard URLs",
+		Short: "Run the local monitoring endpoint and print monitoring URLs",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			metrics.EnsureServer()
@@ -213,10 +213,9 @@ func newMonitorCmd() *cobra.Command {
 			urls := monitoring.URLs()
 			fmt.Printf("metrics\t%s\n", urls["metrics"])
 			fmt.Printf("prometheus\t%s\n", urls["prometheus"])
-			fmt.Printf("grafana\t%s\n", urls["grafana"])
 			if openBrowser {
-				if err := monitoring.OpenBrowser(urls["grafana"]); err != nil {
-					fmt.Fprintf(os.Stderr, "Browser launch failed, open manually: %s\n", urls["grafana"])
+				if err := monitoring.OpenBrowser(urls["prometheus"]); err != nil {
+					fmt.Fprintf(os.Stderr, "Browser launch failed, open manually: %s\n", urls["prometheus"])
 				}
 			}
 			fmt.Fprintln(os.Stderr, "Monitoring active. Press Ctrl+C to stop.")
@@ -226,7 +225,7 @@ func newMonitorCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&openBrowser, "open", true, "open the local Grafana dashboard in a browser")
+	cmd.Flags().BoolVar(&openBrowser, "open", true, "open the local Prometheus UI in a browser")
 	return cmd
 }
 

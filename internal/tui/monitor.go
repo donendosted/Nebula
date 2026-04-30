@@ -10,7 +10,7 @@ import (
 )
 
 // RenderMonitoringPanel renders the observability view in the TUI.
-func RenderMonitoringPanel(snapshot metrics.Snapshot, dashboardURL string) string {
+func RenderMonitoringPanel(snapshot metrics.Snapshot, prometheusURL string) string {
 	box := lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(1)
 	lines := []string{
 		"Monitoring",
@@ -22,9 +22,9 @@ func RenderMonitoringPanel(snapshot metrics.Snapshot, dashboardURL string) strin
 		fmt.Sprintf("Indexed tx: %d", snapshot.IndexedTxTotal),
 		fmt.Sprintf("Metrics server: %s", snapshot.ServerStatus),
 		fmt.Sprintf("Metrics URL: %s", snapshot.MetricsURL),
-		fmt.Sprintf("Dashboard: %s", dashboardURL),
+		fmt.Sprintf("Prometheus: %s", prometheusURL),
 		"",
-		"[r] Refresh  [o] Open dashboard  [esc] Back",
+		"[r] Refresh  [o] Open Prometheus  [esc] Back",
 	}
 	if snapshot.ServerError != "" {
 		lines = append(lines, "", "Server error: "+snapshot.ServerError)

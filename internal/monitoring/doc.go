@@ -1,3 +1,3 @@
-// Package monitoring contains local-only helpers for opening dashboards and
-// describing the Nebula observability surface.
+// Package monitoring contains local-only helpers for opening observability URLs
+// and describing the Nebula monitoring surface.
 package monitoring
