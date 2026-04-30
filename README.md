@@ -421,31 +421,38 @@ Nebula emphasizes local custody, encrypted secret storage, safe transaction vali
 - Encrypted HD wallet storage
   - Mnemonics are encrypted at rest with AES-256-GCM.
   - Key derivation uses `scrypt`.
-  - Reference: [wallet/crypto.go](/home/dos/project-nebula/codex/wallet/crypto.go:1)
+  - Reference: [wallet/crypto.go](https://github.com/donendosted/Nebula/blob/main/wallet/crypto.go#L1)
+
 - No plaintext mnemonic persistence
   - The wallet database stores encrypted mnemonic material and metadata, not plaintext Stellar secrets.
-  - Reference: [wallet/store.go](/home/dos/project-nebula/codex/wallet/store.go:17)
+  - Reference: [wallet/store.go](https://github.com/donendosted/Nebula/blob/main/wallet/store.go#L17)
+
 - Read-only database mode for TUI
   - `nbtui` can open the wallet/index stores in read-only mode to avoid unsafe concurrent writes.
-  - Reference: [internal/db/db.go](/home/dos/project-nebula/codex/internal/db/db.go:1)
+  - Reference: [internal/db/db.go](https://github.com/donendosted/Nebula/blob/main/internal/db/db.go#L1)
+
 - Local file permissions on multisig proposal files
   - Proposal files are written with `0600`.
-  - Reference: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:222)
+  - Reference: [multisig/service.go](https://github.com/donendosted/Nebula/blob/main/multisig/service.go#L222)
+
 - Multisig threshold safety validation
   - Threshold ordering is validated.
   - Signer changes are rejected when they would obviously reduce total signer weight below the high threshold.
-  - Reference: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:282)
+  - Reference: [multisig/service.go](https://github.com/donendosted/Nebula/blob/main/multisig/service.go#L282)
+
 - Reserve-aware payment validation
   - Sends are checked against minimum reserve logic before submission.
-  - Reference: [stellar/client.go](/home/dos/project-nebula/codex/stellar/client.go:112)
+  - Reference: [stellar/client.go](https://github.com/donendosted/Nebula/blob/main/stellar/client.go#L112)
+
 - Sequence reloading before transaction submission
   - Account state is reloaded from Horizon before payment/proposal submission to reduce stale-sequence failures.
-  - Reference: [stellar/client.go](/home/dos/project-nebula/codex/stellar/client.go:58)
-  - Reference: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:180)
+  - Reference: [stellar/client.go](https://github.com/donendosted/Nebula/blob/main/stellar/client.go#L58)
+  - Reference: [multisig/service.go](https://github.com/donendosted/Nebula/blob/main/multisig/service.go#L180)
+
 - Explicit confirmation gates for sensitive wallet and signer actions
   - Sensitive actions require explicit confirmation instead of silent mutation.
-  - Reference: [wallet/store.go](/home/dos/project-nebula/codex/wallet/store.go:344)
-  - Reference: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:28)
+  - Reference: [wallet/store.go](https://github.com/donendosted/Nebula/blob/main/wallet/store.go#L344)
+  - Reference: [multisig/service.go](https://github.com/donendosted/Nebula/blob/main/multisig/service.go#L28)
 
 ### Partially Implemented
 
