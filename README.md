@@ -20,6 +20,10 @@ Nebula is a local-first, security-focused Stellar wallet for operators, develope
   - CLI + TUI backed by shared Go packages
   - local observability via Prometheus-compatible metrics
 
+## Why This Matters On Stellar
+
+Stellar accounts are operationally sensitive: signer weights, thresholds, reserves, sequence numbers, and network separation directly affect whether funds remain safe and whether transactions succeed. Nebula focuses on those realities with encrypted local custody, multisig transaction flow, reserve-aware sending, account reloading before submission, and local indexing for fast operator visibility.
+
 - `nb`: scriptable Cobra CLI
 - `nbtui`: Bubble Tea terminal UI
 - `wallet/`: encrypted HD wallet storage and derivation
@@ -135,7 +139,7 @@ Transaction flow:
 
 ## CLI
 
-Core command groups:
+Core command groups are shown below. The CLI is designed for direct, scriptable use rather than interactive prompts.
 
 HD wallet and account management:
 
@@ -346,16 +350,7 @@ These charts are driven by Nebula's local metrics endpoint and a local Prometheu
 
 <img width="652" height="585" alt="image" src="https://github.com/user-attachments/assets/c125c008-3d4f-4bba-a072-d38e222919e6" />
 
-
-
-
-
-Useful PromQL:
-
-- success rate: `sum(rate(nebula_tx_success_total[$__rate_interval]))`
-- failure rate: `sum(rate(nebula_tx_failure_total[$__rate_interval]))`
-- p95 latency: `1000 * histogram_quantile(0.95, sum(rate(nebula_tx_latency_seconds_bucket[$__rate_interval])) by (le))`
-- indexed tx count: `nebula_indexed_tx_total`
+The dashboard uses the same PromQL queries listed in the Observability section above.
 
 ## Monitoring Dashboard
 
@@ -455,6 +450,8 @@ This keeps history and analytics queries local instead of repeatedly hitting Hor
 
 ## Community Contribution
 
+Public project sharing:
+
 [<img width="548" height="700" alt="image" src="https://github.com/user-attachments/assets/020ab201-9b3f-44ec-b772-935b7ba5f733" />](https://x.com/donendosted/status/2049906872879366517?s=20)
 
 ## User Feedback
@@ -478,4 +475,4 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Download the latest versions right now from - 
+Download the latest release binaries from the GitHub Releases page.
