@@ -2,7 +2,7 @@
 
 # Nebula
 
-Nebula is a security-focused Stellar wallet project for operators and developers.
+Nebula is a local-first, security-focused Stellar wallet for operators, developers, and power users.
 
 - Quick navigation for judges:
   - [Metrics Dashboard](#metrics-dashboard)
@@ -12,6 +12,13 @@ Nebula is a security-focused Stellar wallet project for operators and developers
   - [Data Indexing](#data-indexing)
   - [Community Contribution](#community-contribution)
   - [User Feedback](#user-feedback)
+
+- What this project demonstrates:
+  - encrypted HD wallet storage
+  - Stellar multisig proposal, signing, and submission flow
+  - local transaction indexing and analytics
+  - CLI + TUI backed by shared Go packages
+  - local observability via Prometheus-compatible metrics
 
 - `nb`: scriptable Cobra CLI
 - `nbtui`: Bubble Tea terminal UI
@@ -28,15 +35,13 @@ Nebula is a security-focused Stellar wallet project for operators and developers
 
 ### From GitHub Releases
 
-Download the archive for your platform from GitHub Releases:
+Download the archive for your platform from GitHub Releases, extract it, and run the binaries directly:
 
 - `nebula-linux-amd64.tar.gz`
 - `nebula-linux-arm64.tar.gz`
 - `nebula-darwin-amd64.tar.gz`
 - `nebula-darwin-arm64.tar.gz`
 - `nebula-windows-amd64.zip`
-
-Extract it, then run:
 
 ```bash
 ./nb --help
@@ -89,15 +94,17 @@ go install ./cmd/nb ./cmd/nbtui
 
 ## Storage
 
-Nebula stores production wallet state in `~/.nebula/`:
+Nebula stores wallet and index data in `~/.nebula/`:
 
 - `wallet.db/`: encrypted HD wallet BadgerDB
 - `index.db/`: local transaction index BadgerDB
 - `proposals/`: multisig proposal JSON files
 
-Wallet mnemonics are encrypted with AES-256-GCM and scrypt-derived keys. Nebula does not persist plaintext Stellar seeds.
+Mnemonic material is encrypted with AES-256-GCM and scrypt-derived keys. Nebula does not persist plaintext Stellar seeds.
 
 ## Architecture
+
+Nebula keeps the CLI and TUI thin. Core wallet, multisig, indexing, and Stellar network logic live in shared packages:
 
 ```text
 cmd/nb
@@ -127,6 +134,8 @@ Transaction flow:
 6. Submit and optionally sync into the local index.
 
 ## CLI
+
+Core command groups:
 
 HD wallet and account management:
 
@@ -177,7 +186,7 @@ nb monitor --open=true
 
 ## SDK And GoDoc
 
-The production packages are documented for GoDoc and intended to be consumed directly:
+The core packages are documented for GoDoc and can be used directly by other Go programs:
 
 ```go
 import (
@@ -273,7 +282,7 @@ go doc ./indexer
 
 ## Observability
 
-Nebula exposes Prometheus-compatible local metrics at:
+Nebula exposes local Prometheus-compatible runtime and wallet metrics:
 
 ```text
 http://localhost:2112/metrics
@@ -326,6 +335,8 @@ TUI monitoring:
 
 ## Metrics Dashboard
 
+These charts are driven by Nebula's local metrics endpoint and a local Prometheus instance.
+
 ![https://img.shields.io/github/downloads/donendosted/Nebula/v0.2/total](https://img.shields.io/github/downloads/donendosted/Nebula/v0.2/total)
 
 
@@ -348,7 +359,7 @@ Useful PromQL:
 
 ## Monitoring Dashboard
 
-Nebula includes a built-in monitoring screen in `nbtui`.
+Nebula includes a built-in monitoring screen inside `nbtui` for quick local inspection without leaving the terminal.
 
 - open with `m`
 - refresh with `r`
@@ -359,6 +370,8 @@ Nebula includes a built-in monitoring screen in `nbtui`.
 
 
 ## Security
+
+Nebula emphasizes local custody, encrypted secret storage, safe transaction validation, and safer multisig account changes.
 
 **Link: completed security checklist**
 
@@ -388,7 +401,7 @@ Additional security items you can still add:
 
 ### Multi-Signature Transaction Approval
 
-Nebula implements a Stellar multi-signature workflow for multi-party transaction approval using signer management, threshold configuration, unsigned proposal generation, signature collection, and signed XDR submission.
+Nebula implements a Stellar-native multi-signature workflow built on signer weights, thresholds, unsigned proposal generation, signature collection, and signed XDR submission.
 
 **Description**
 
@@ -408,7 +421,7 @@ Nebula implements a Stellar multi-signature workflow for multi-party transaction
 
 ### Encrypted HD Wallet
 
-Nebula also implements encrypted HD wallet storage with derived account persistence.
+Nebula also implements encrypted HD wallet storage with derived account persistence and active-account switching.
 
 **Proof of Implementation**
 
@@ -419,7 +432,7 @@ Nebula also implements encrypted HD wallet storage with derived account persiste
 
 ### Approach Description
 
-Nebula uses a local BadgerDB cache in `~/.nebula/index.db` to store normalized Stellar payment and account-creation activity for fast offline search and stats.
+Nebula uses a local BadgerDB cache in `~/.nebula/index.db` to store normalized Stellar payment and account-creation activity for fast local search and stats.
 
 Key indexing behavior:
 
@@ -428,7 +441,7 @@ Key indexing behavior:
 - time-based secondary index for recent activity queries
 - local aggregate stats computed from cached records
 
-This keeps common history and analytics queries local instead of repeatedly hitting Horizon.
+This keeps history and analytics queries local instead of repeatedly hitting Horizon.
 
 **Proof of Implementation**
 
@@ -446,7 +459,7 @@ This keeps common history and analytics queries local instead of repeatedly hitt
 
 ## User Feedback
 
-Fill this table after collecting tester feedback.
+Fill this table as you collect tester feedback and link the implementation commits that addressed it.
 
 | Name | Email | Wallet Address | Feedback | Commit ID |
 |------|-------|----------------|----------|-----------|
