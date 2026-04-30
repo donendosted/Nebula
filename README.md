@@ -45,6 +45,16 @@ Stellar accounts are operationally sensitive: signer weights, thresholds, reserv
 
 https://github.com/user-attachments/assets/1172bdc5-9d0a-4165-814e-b6ac724e3a3b
 
+
+The CLI - 
+<img width="589" height="512" alt="image" src="https://github.com/user-attachments/assets/860f5643-942a-44ac-8418-209c0a48dd2c" />
+
+Demonstration of a sending instant - <img width="950" height="650" alt="image" src="https://github.com/user-attachments/assets/a5494ee6-16b6-4750-8a34-8ff105e2e809" />
+
+History of transactions - <img width="1600" height="288" alt="image" src="https://github.com/user-attachments/assets/70092513-7990-47fb-898e-9296f77f5741" />
+
+
+
 ## Download And Use
 
 ### From GitHub Releases
