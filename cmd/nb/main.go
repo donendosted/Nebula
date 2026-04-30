@@ -429,19 +429,14 @@ func newTxCmd(state *appState) *cobra.Command {
 }
 
 func newWalletCmd() *cobra.Command {
-	var createName string
-	var createWords int
-	var importName string
-	var deriveName string
-	var deriveIndex uint32
-	var switchIndex uint32
-
 	cmd := &cobra.Command{
 		Use:   "wallet",
 		Short: "Manage encrypted HD wallet roots and derived accounts",
 	}
 
-	cmd.AddCommand(&cobra.Command{
+	var createWalletName string
+	var createWords int
+	createCmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a new encrypted HD wallet root",
 		Args:  cobra.NoArgs,
@@ -456,7 +451,7 @@ func newWalletCmd() *cobra.Command {
 				return err
 			}
 			summary, mnemonic, err := store.CreateWallet(wallet.CreateOptions{
-				Name:       createName,
+				Name:       createWalletName,
 				Passphrase: passphrase,
 				Words:      createWords,
 			})
@@ -469,11 +464,12 @@ func newWalletCmd() *cobra.Command {
 			fmt.Fprintf(os.Stderr, "Encrypted wallet DB: %s\n", store.DBDir())
 			return nil
 		},
-	})
-	cmd.Commands()[0].Flags().StringVar(&createName, "name", "", "wallet name")
-	cmd.Commands()[0].Flags().IntVar(&createWords, "words", 24, "mnemonic size: 12 or 24")
+	}
+	mustRegisterStringFlag(createCmd, &createWalletName, "wallet-name", "", "wallet name")
+	mustRegisterIntFlag(createCmd, &createWords, "words", 24, "mnemonic size: 12 or 24")
 
-	cmd.AddCommand(&cobra.Command{
+	var importWalletName string
+	importCmd := &cobra.Command{
 		Use:   "import <mnemonic>",
 		Short: "Import an existing BIP39 mnemonic",
 		Args:  cobra.ExactArgs(1),
@@ -488,7 +484,7 @@ func newWalletCmd() *cobra.Command {
 				return err
 			}
 			summary, err := store.ImportWallet(wallet.ImportOptions{
-				Name:       importName,
+				Name:       importWalletName,
 				Mnemonic:   args[0],
 				Passphrase: passphrase,
 			})
@@ -500,10 +496,12 @@ func newWalletCmd() *cobra.Command {
 			fmt.Fprintf(os.Stderr, "Encrypted wallet DB: %s\n", store.DBDir())
 			return nil
 		},
-	})
-	cmd.Commands()[1].Flags().StringVar(&importName, "name", "", "wallet name")
+	}
+	mustRegisterStringFlag(importCmd, &importWalletName, "wallet-name", "", "wallet name")
 
-	cmd.AddCommand(&cobra.Command{
+	var deriveAccountName string
+	var deriveIndex uint32
+	deriveCmd := &cobra.Command{
 		Use:   "derive <wallet-id|name>",
 		Short: "Derive and persist another account under a wallet root",
 		Args:  cobra.ExactArgs(1),
@@ -517,7 +515,7 @@ func newWalletCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			account, err := store.Derive(args[0], passphrase, deriveIndex, deriveName)
+			account, err := store.Derive(args[0], passphrase, deriveIndex, deriveAccountName)
 			if err != nil {
 				return renderError(err)
 			}
@@ -525,11 +523,11 @@ func newWalletCmd() *cobra.Command {
 			fmt.Fprintf(os.Stderr, "Derived account %d at %s under wallet %s\n", account.Index, account.Path, account.WalletID)
 			return nil
 		},
-	})
-	cmd.Commands()[2].Flags().Uint32Var(&deriveIndex, "index", 1, "HD account index to derive")
-	cmd.Commands()[2].Flags().StringVar(&deriveName, "name", "", "optional derived account label")
+	}
+	mustRegisterUint32Flag(deriveCmd, &deriveIndex, "index", 1, "HD account index to derive")
+	mustRegisterStringFlag(deriveCmd, &deriveAccountName, "account-name", "", "optional derived account label")
 
-	cmd.AddCommand(&cobra.Command{
+	listCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List wallet roots and locally derived accounts",
 		Args:  cobra.NoArgs,
@@ -555,9 +553,10 @@ func newWalletCmd() *cobra.Command {
 			fmt.Fprintf(os.Stderr, "Encrypted wallet DB: %s\n", store.DBDir())
 			return nil
 		},
-	})
+	}
 
-	cmd.AddCommand(&cobra.Command{
+	var switchIndex uint32
+	switchCmd := &cobra.Command{
 		Use:   "switch <wallet-id|name>",
 		Short: "Switch the active wallet root and account index",
 		Args:  cobra.ExactArgs(1),
@@ -583,10 +582,10 @@ func newWalletCmd() *cobra.Command {
 			}
 			return renderError(wallet.ErrAccountNotDerived)
 		},
-	})
-	cmd.Commands()[4].Flags().Uint32Var(&switchIndex, "account-index", 0, "derived account index to activate")
+	}
+	mustRegisterUint32Flag(switchCmd, &switchIndex, "account-index", 0, "derived account index to activate")
 
-	cmd.AddCommand(&cobra.Command{
+	addressCmd := &cobra.Command{
 		Use:   "address",
 		Short: "Print the active derived wallet address",
 		Args:  cobra.NoArgs,
@@ -612,7 +611,9 @@ func newWalletCmd() *cobra.Command {
 			}
 			return renderError(wallet.ErrAccountNotDerived)
 		},
-	})
+	}
+
+	cmd.AddCommand(createCmd, importCmd, deriveCmd, listCmd, switchCmd, addressCmd)
 
 	return cmd
 }
@@ -666,6 +667,27 @@ func newSendCmd(state *appState) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&memo, "memo", "", "optional text memo")
 	return cmd
+}
+
+func mustRegisterStringFlag(cmd *cobra.Command, target *string, name string, value string, usage string) {
+	if cmd.Flags().Lookup(name) != nil {
+		panic(fmt.Sprintf("%s flag redefined on %s", name, cmd.CommandPath()))
+	}
+	cmd.Flags().StringVar(target, name, value, usage)
+}
+
+func mustRegisterIntFlag(cmd *cobra.Command, target *int, name string, value int, usage string) {
+	if cmd.Flags().Lookup(name) != nil {
+		panic(fmt.Sprintf("%s flag redefined on %s", name, cmd.CommandPath()))
+	}
+	cmd.Flags().IntVar(target, name, value, usage)
+}
+
+func mustRegisterUint32Flag(cmd *cobra.Command, target *uint32, name string, value uint32, usage string) {
+	if cmd.Flags().Lookup(name) != nil {
+		panic(fmt.Sprintf("%s flag redefined on %s", name, cmd.CommandPath()))
+	}
+	cmd.Flags().Uint32Var(target, name, value, usage)
 }
 
 func newHistoryCmd(state *appState) *cobra.Command {
