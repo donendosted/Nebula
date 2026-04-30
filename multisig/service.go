@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"nebula/internal/metrics"
 	"nebula/stellar"
 	"nebula/wallet"
 
@@ -169,6 +170,7 @@ func (s *Service) SignProposal(secret string, proposalID string) (Proposal, erro
 	if !proposalHasSigner(proposal, signerAddress) {
 		proposal.Signers = append(proposal.Signers, ProposalSig{Address: signerAddress, SignedAt: time.Now().UTC()})
 	}
+	metrics.RecordWalletAction("sign", proposal.ID)
 	if err := s.saveProposal(proposal); err != nil {
 		return Proposal{}, err
 	}

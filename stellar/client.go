@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"nebula/internal/metrics"
+
 	"github.com/stellar/go-stellar-sdk/clients/horizonclient"
 	"github.com/stellar/go-stellar-sdk/keypair"
 	"github.com/stellar/go-stellar-sdk/network"
@@ -79,9 +81,12 @@ func (c *Client) Payments(address string, limit int) (operations.OperationsPage,
 
 // SubmitTransaction submits a signed transaction.
 func (c *Client) SubmitTransaction(tx *txnbuild.Transaction) (hProtocol.Transaction, error) {
-	return withRateLimitRetry(func() (hProtocol.Transaction, error) {
+	start := time.Now()
+	resp, err := withRateLimitRetry(func() (hProtocol.Transaction, error) {
 		return c.horizon.SubmitTransaction(tx)
 	})
+	metrics.ObserveTx(err == nil, time.Since(start))
+	return resp, err
 }
 
 // SubmitEnvelopeXDR submits a signed base64 XDR envelope.
@@ -156,6 +161,7 @@ func (c *Client) SendPayment(secret, destination, amount, memo string) (string, 
 	if err != nil {
 		return "", fmt.Errorf("submit transaction: %w", err)
 	}
+	metrics.RecordWalletAction("send", strings.TrimSpace(destination))
 	return resp.Hash, nil
 }
 

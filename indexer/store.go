@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"nebula/internal/metrics"
 	"nebula/stellar"
 	"nebula/wallet"
 
@@ -103,6 +104,11 @@ func (s *Store) SyncAccount(client *stellar.Client, account string, limit int) (
 		return txn.Set(metaKey("last_sync:"+account), []byte(time.Now().UTC().Format(time.RFC3339)))
 	}); err != nil {
 		return 0, err
+	}
+	metrics.RecordWalletAction("sync", strings.TrimSpace(account))
+	total, err := s.CountRecords()
+	if err == nil {
+		metrics.SetIndexedTxTotal(total)
 	}
 	return len(records), nil
 }
@@ -223,6 +229,20 @@ func (s *Store) Stats(account string) (Stats, error) {
 		stats.AverageLatencyMS /= float64(latencyCount)
 	}
 	return stats, nil
+}
+
+// CountRecords returns the number of indexed transaction records across all accounts.
+func (s *Store) CountRecords() (int, error) {
+	total := 0
+	err := s.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		for it.Seek([]byte(txKeyPrefix)); it.ValidForPrefix([]byte(txKeyPrefix)); it.Next() {
+			total++
+		}
+		return nil
+	})
+	return total, err
 }
 
 func (s *Store) record(txn *badger.Txn, account, hash string) (Record, error) {

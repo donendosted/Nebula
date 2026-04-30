@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"nebula/internal/metrics"
+
 	"github.com/dgraph-io/badger/v4"
 )
 
@@ -89,12 +91,19 @@ func (s *Store) CreateWallet(opts CreateOptions) (WalletSummary, string, error) 
 		return WalletSummary{}, "", err
 	}
 	summary, err := s.createWallet(opts.Name, mnemonic, opts.Passphrase)
+	if err == nil {
+		metrics.RecordWalletAction("create", summary.Name)
+	}
 	return summary, mnemonic, err
 }
 
 // ImportWallet imports an existing mnemonic, encrypts it, and derives account 0.
 func (s *Store) ImportWallet(opts ImportOptions) (WalletSummary, error) {
-	return s.createWallet(opts.Name, opts.Mnemonic, opts.Passphrase)
+	summary, err := s.createWallet(opts.Name, opts.Mnemonic, opts.Passphrase)
+	if err == nil {
+		metrics.RecordWalletAction("create", summary.Name)
+	}
+	return summary, err
 }
 
 func (s *Store) createWallet(name, mnemonic, passphrase string) (WalletSummary, error) {
