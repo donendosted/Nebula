@@ -353,8 +353,9 @@ Nebula includes a built-in monitoring screen in `nbtui`.
 
 **Link: completed security checklist**
 
-- Reference: [ARCHITECTURE.md](/home/dos/project-nebula/codex/ARCHITECTURE.md:1)
-- TODO: replace with a dedicated `security_checklist.md` or public checklist link if you want a submission-ready external reference.
+- Local checklist: [security_checklist.md](/home/dos/project-nebula/codex/security_checklist.md:1)
+- Architecture reference: [ARCHITECTURE.md](/home/dos/project-nebula/codex/ARCHITECTURE.md:1)
+- TODO: replace with a public hosted checklist link if you want an external submission-ready reference.
 
 Current security posture includes:
 
@@ -363,6 +364,16 @@ Current security posture includes:
 - reserve-aware payment validation in [stellar/client.go](/home/dos/project-nebula/codex/stellar/client.go:112)
 - multisig threshold safety checks in [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:229)
 - proposal file permissions and local-only storage in [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:204)
+- read-only Badger access for TUI database safety in [internal/db/db.go](/home/dos/project-nebula/codex/internal/db/db.go:1)
+
+Additional security items you can still add:
+
+- secure mnemonic import from `stdin` instead of CLI args
+- local multisig quorum verification before `tx submit`
+- tamper-evident or encrypted proposal files
+- OS keyring integration for passphrase storage
+- security event logging for signer changes and proposal actions
+- memory zeroization for decrypted wallet material where practical
 
 ## Advanced Feature
 
