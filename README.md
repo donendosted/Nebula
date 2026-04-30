@@ -162,6 +162,39 @@ Transaction flow:
 5. Sign directly or store proposal XDR for multi-party signing.
 6. Submit and optionally sync into the local index.
 
+### Data Flow
+
+```text
+        +--------------------+
+        |     cmd/nb         |
+        | Cobra command tree |
+        +---------+----------+
+                  |
+                  v
+        +--------------------+
+        |      wallet        |
+        | unlock + derive    |
+        +---------+----------+
+                  |
+         +--------+--------+
+         |                 |
+         v                 v
++----------------+  +----------------+
+|    multisig    |  |    stellar     |
+| signer config  |  | tx build/send  |
+| proposal store |  | Horizon sync    |
++--------+-------+  +--------+-------+
+         |                   |
+         +---------+---------+
+                   |
+                   v
+          +-------------------+
+          |      indexer      |
+          | cache + search    |
+          | local analytics   |
+          +-------------------+
+```
+
 ## CLI
 
 Core command groups are shown below. The CLI is designed for direct, scriptable use rather than interactive prompts.
