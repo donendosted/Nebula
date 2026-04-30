@@ -4,6 +4,9 @@
 
 Nebula is a local-first, security-focused Stellar wallet for operators, developers, and power users.
 
+[![release](https://github.com/donendosted/Nebula/actions/workflows/release.yml/badge.svg)](https://github.com/donendosted/Nebula/actions/workflows/release.yml) ![https://img.shields.io/github/downloads/donendosted/Nebula/v0.2/total](https://img.shields.io/github/downloads/donendosted/Nebula/v0.2/total)
+
+
 - Quick navigation:
   - [Metrics Dashboard](#metrics-dashboard)
   - [Monitoring Dashboard](#monitoring-dashboard)
