@@ -5,10 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"nebula/indexer"
+	"nebula/internal/metrics"
+	"nebula/internal/monitoring"
 	"nebula/multisig"
 	"nebula/nebula"
 	"nebula/stellar"
@@ -30,6 +34,7 @@ type unlockedSession struct {
 }
 
 func main() {
+	metrics.EnsureServer()
 	state := &appState{}
 	root := newRootCmd(state)
 	if err := root.Execute(); err != nil {
@@ -57,6 +62,7 @@ func newRootCmd(state *appState) *cobra.Command {
 	cmd.AddCommand(newIndexCmd(state))
 	cmd.AddCommand(newSearchCmd())
 	cmd.AddCommand(newStatsCmd())
+	cmd.AddCommand(newMonitorCmd())
 	cmd.AddCommand(newBalanceCmd(state))
 	cmd.AddCommand(newSendCmd(state))
 	cmd.AddCommand(newHistoryCmd(state))
@@ -168,30 +174,59 @@ func newSearchCmd() *cobra.Command {
 }
 
 func newStatsCmd() *cobra.Command {
-	var account string
-
 	cmd := &cobra.Command{
 		Use:   "stats",
-		Short: "Show local transaction analytics",
+		Short: "Show local observability metrics summary",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			idx, err := indexer.NewStore()
-			if err != nil {
-				return err
+			snapshot := metrics.SnapshotNow()
+			fmt.Printf("metrics_url\t%s\n", snapshot.MetricsURL)
+			fmt.Printf("tx_success_total\t%d\n", snapshot.TxSuccessTotal)
+			fmt.Printf("tx_failure_total\t%d\n", snapshot.TxFailureTotal)
+			fmt.Printf("tx_latency_avg_ms\t%.2f\n", snapshot.TxLatencyAverageMS)
+			fmt.Printf("tx_latency_p95_ms\t%.2f\n", snapshot.TxLatencyP95MS)
+			fmt.Printf("indexed_tx_total\t%d\n", snapshot.IndexedTxTotal)
+			fmt.Printf("metrics_server_status\t%s\n", snapshot.ServerStatus)
+			for _, action := range snapshot.RecentActions {
+				fmt.Printf("recent_action\t%s\t%s\t%s\n",
+					action.Timestamp.Format(time.RFC3339),
+					action.Action,
+					action.Note,
+				)
 			}
-			defer idx.Close()
-			stats, err := idx.Stats(account)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("total_transactions\t%d\n", stats.TotalTransactions)
-			fmt.Printf("avg_latency_ms\t%.2f\n", stats.AverageLatencyMS)
-			fmt.Printf("total_volume_sent\t%.7f\n", stats.TotalVolumeSent)
-			fmt.Printf("total_volume_received\t%.7f\n", stats.TotalVolumeRecv)
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&account, "account", "", "filter by account address")
+	return cmd
+}
+
+func newMonitorCmd() *cobra.Command {
+	var openBrowser bool
+
+	cmd := &cobra.Command{
+		Use:   "monitor",
+		Short: "Run the local monitoring endpoint and print dashboard URLs",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			metrics.EnsureServer()
+			metrics.RecordWalletAction("watch", "cli monitor")
+			urls := monitoring.URLs()
+			fmt.Printf("metrics\t%s\n", urls["metrics"])
+			fmt.Printf("prometheus\t%s\n", urls["prometheus"])
+			fmt.Printf("grafana\t%s\n", urls["grafana"])
+			if openBrowser {
+				if err := monitoring.OpenBrowser(urls["grafana"]); err != nil {
+					fmt.Fprintf(os.Stderr, "Browser launch failed, open manually: %s\n", urls["grafana"])
+				}
+			}
+			fmt.Fprintln(os.Stderr, "Monitoring active. Press Ctrl+C to stop.")
+			signals := make(chan os.Signal, 1)
+			signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+			<-signals
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&openBrowser, "open", true, "open the local Grafana dashboard in a browser")
 	return cmd
 }
 
