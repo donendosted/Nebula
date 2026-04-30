@@ -1,3 +1,5 @@
+<img width="234" height="62" alt="image" src="https://github.com/user-attachments/assets/28d0de1f-3679-4e2c-9a0f-7a1df46ca93f" />
+
 # Nebula
 
 Nebula is a security-focused Stellar wallet project for operators and developers.
@@ -315,11 +317,18 @@ TUI monitoring:
 
 ## Metrics Dashboard
 
+![https://img.shields.io/github/downloads/donendosted/Nebula/v0.2/total](https://img.shields.io/github/downloads/donendosted/Nebula/v0.2/total)
+
+
 **Local Metrics Endpoint:** `http://localhost:2112/metrics`
 
 **Local Prometheus UI:** `http://localhost:9090`
 
-**Screenshot or Link:** TODO: add a screenshot of Prometheus graphs or link to a hosted image.
+<img width="652" height="585" alt="image" src="https://github.com/user-attachments/assets/c125c008-3d4f-4bba-a072-d38e222919e6" />
+
+
+
+
 
 Useful PromQL:
 
@@ -337,13 +346,14 @@ Nebula includes a built-in monitoring screen in `nbtui`.
 - open local Prometheus with `o`
 - open TUI actions help with `H` or `?`
 
-**Screenshot:** TODO: add a screenshot of the `nbtui` monitoring screen.
+<img width="792" height="669" alt="image" src="https://github.com/user-attachments/assets/7a5492e1-b0c0-4a86-8d45-fac799660e6c" />
+
 
 ## Security
 
 **Link: completed security checklist**
 
-- Current local reference: [ARCHITECTURE.md](/home/dos/project-nebula/codex/ARCHITECTURE.md:1)
+- Reference: [ARCHITECTURE.md](/home/dos/project-nebula/codex/ARCHITECTURE.md:1)
 - TODO: replace with a dedicated `security_checklist.md` or public checklist link if you want a submission-ready external reference.
 
 Current security posture includes:
@@ -412,10 +422,8 @@ This keeps common history and analytics queries local instead of repeatedly hitt
 
 ## Community Contribution
 
-**Link: community contribution (Post about your product on Twitter)**
+[<img width="548" height="700" alt="image" src="https://github.com/user-attachments/assets/020ab201-9b3f-44ec-b772-935b7ba5f733" />](https://x.com/donendosted/status/2049906872879366517?s=20)
 
-- TODO: add your Twitter/X post link.
-- TODO: optionally add a screenshot of the post or announcement thread.
 
 ## Release Flow
 
@@ -426,8 +434,4 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Or via the helper:
-
-```bash
-./scripts/release-tag.sh v0.1.0
-```
+Download the latest versions right now from - 
