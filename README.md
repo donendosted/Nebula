@@ -355,6 +355,12 @@ Fill this table as you collect tester feedback and link the implementation commi
 | Taps | tapsedtzz@gmail.com | GAR7NJQ6QJJTXDABDQSPCFC6MC6A3XP6VD2Y6CTK4WRCIMDKIZX77QLF | The tui is really great but would love a gui interface | *working on it* | 
 
 
+FULL FILE LINK : https://docs.google.com/spreadsheets/d/1fvJI2ZTKbtRnlA1-XOwUkVltRIPhzwVfm7Y_660YLdk/edit?usp=sharing
+
+
+SUBMIT YOUR FEEDBACK : https://forms.gle/GFry9w5UjjSjSjWLA
+
+
 ## Metrics Dashboard
 
 These charts are driven by Nebula's local metrics endpoint and a local Prometheus instance.
