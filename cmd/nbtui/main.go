@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"nebula/indexer"
+	"nebula/internal/db"
 	"nebula/internal/metrics"
 	"nebula/internal/monitoring"
 	tuiview "nebula/internal/tui"
@@ -118,9 +119,11 @@ type dashboardMsg struct {
 }
 
 type model struct {
-	store   *wallet.Store
-	network string
-	mode    viewMode
+	store          *wallet.Store
+	indexStore     *indexer.Store
+	walletReadOnly bool
+	network        string
+	mode           viewMode
 
 	activeItem *walletItem
 	session    *session
@@ -150,19 +153,20 @@ type model struct {
 
 func main() {
 	metrics.EnsureServer()
-	store, err := wallet.NewStore()
+	handles, err := db.OpenForTUI()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	m := newModel(store)
+	defer handles.Close()
+	m := newModel(handles)
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func newModel(store *wallet.Store) model {
+func newModel(handles *db.Handles) model {
 	loginInput := textinput.New()
 	loginInput.Placeholder = "Wallet passphrase"
 	loginInput.EchoMode = textinput.EchoPassword
@@ -198,17 +202,19 @@ func newModel(store *wallet.Store) model {
 	loginInput.Focus()
 
 	return model{
-		store:       store,
-		network:     store.CurrentNetwork(),
-		mode:        modeLogin,
-		loading:     true,
-		loginInput:  loginInput,
-		nameInput:   nameInput,
-		secretInput: secretInput,
-		passInput:   passInput,
-		sendToInput: sendToInput,
-		amountInput: amountInput,
-		memoInput:   memoInput,
+		store:          handles.Wallet,
+		indexStore:     handles.Index,
+		walletReadOnly: handles.WalletReadOnly,
+		network:        handles.Wallet.CurrentNetwork(),
+		mode:           modeLogin,
+		loading:        true,
+		loginInput:     loginInput,
+		nameInput:      nameInput,
+		secretInput:    secretInput,
+		passInput:      passInput,
+		sendToInput:    sendToInput,
+		amountInput:    amountInput,
+		memoInput:      memoInput,
 	}
 }
 
@@ -480,12 +486,20 @@ func (m model) updateGlobalKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "i":
 		if m.mode == modeWelcome || m.mode == modeWallets {
+			if m.walletReadOnly {
+				m.errMessage = "Database is in use by another process. Close CLI or reopen TUI with write access."
+				return m, nil
+			}
 			m.mode = modeImport
 			m.focusImportInput()
 			return m, nil
 		}
 	case "a":
 		if m.mode == modeWelcome || m.mode == modeWallets {
+			if m.walletReadOnly {
+				m.errMessage = "Database is in use by another process. Close CLI or reopen TUI with write access."
+				return m, nil
+			}
 			m.mode = modeCreate
 			m.focusCreateInput()
 			return m, nil
@@ -822,6 +836,7 @@ func (m model) settingsView() string {
 		fmt.Sprintf("Storage: %s", m.store.RootDir()),
 		fmt.Sprintf("Wallet DB: %s", m.store.DBDir()),
 		fmt.Sprintf("Index DB: %s", m.store.IndexDir()),
+		fmt.Sprintf("Wallet mode: %s", walletModeLabel(m.walletReadOnly)),
 		fmt.Sprintf("Proposals: %s", proposalPath),
 		"",
 		"Install globally:",
@@ -917,19 +932,10 @@ func (m model) loadHistoryCmd() tea.Cmd {
 		return nil
 	}
 	current := *m.session
-	networkName := m.network
+	idx := m.indexStore
 	return func() tea.Msg {
-		client, err := stellar.NewClient(networkName)
-		if err != nil {
-			return historyMsg{Err: err}
-		}
-		idx, err := indexer.NewStore()
-		if err != nil {
-			return historyMsg{Err: err}
-		}
-		defer idx.Close()
-		if _, err := idx.SyncAccount(client, current.Account.Address, 20); err != nil && !errors.Is(err, stellar.ErrAccountNotFunded) {
-			return historyMsg{Err: err}
+		if idx == nil {
+			return historyMsg{Err: fmt.Errorf("index database is unavailable")}
 		}
 		items, err := idx.SearchAccount(current.Account.Address, 365*24*time.Hour)
 		if err != nil {
@@ -1010,14 +1016,20 @@ func (m model) toggleNetworkCmd() tea.Cmd {
 
 func (m model) unlockWalletCmd(item *walletItem, passphrase string) tea.Cmd {
 	store := m.store
+	readonly := m.walletReadOnly
 	return func() tea.Msg {
 		if item == nil {
 			return loginMsg{Err: wallet.ErrWalletNotFound}
 		}
-		if err := store.SetActiveWallet(item.Wallet.ID, item.Account.Index); err != nil {
-			return loginMsg{Err: err}
+		if readonly && !item.Active {
+			return loginMsg{Err: fmt.Errorf("database is in use by another process. Close CLI or reopen TUI with write access")}
 		}
-		summary, account, secret, err := store.ActiveAccount(passphrase)
+		if !item.Active {
+			if err := store.SetActiveWallet(item.Wallet.ID, item.Account.Index); err != nil {
+				return loginMsg{Err: err}
+			}
+		}
+		summary, account, secret, err := store.UnlockAccount(item.Wallet.ID, item.Account.Index, passphrase)
 		if err != nil {
 			return loginMsg{Err: err}
 		}
@@ -1032,6 +1044,11 @@ func (m model) unlockWalletCmd(item *walletItem, passphrase string) tea.Cmd {
 
 func (m model) createWalletCmd(name, passphrase string) tea.Cmd {
 	store := m.store
+	if m.walletReadOnly {
+		return func() tea.Msg {
+			return walletSavedMsg{Err: fmt.Errorf("database is in use by another process. Close CLI or reopen TUI with write access")}
+		}
+	}
 	return func() tea.Msg {
 		summary, _, err := store.CreateWallet(wallet.CreateOptions{Name: name, Passphrase: passphrase, Words: 24})
 		if err != nil {
@@ -1052,6 +1069,11 @@ func (m model) createWalletCmd(name, passphrase string) tea.Cmd {
 
 func (m model) importWalletCmd(name, mnemonic, passphrase string) tea.Cmd {
 	store := m.store
+	if m.walletReadOnly {
+		return func() tea.Msg {
+			return walletSavedMsg{Err: fmt.Errorf("database is in use by another process. Close CLI or reopen TUI with write access")}
+		}
+	}
 	return func() tea.Msg {
 		summary, err := store.ImportWallet(wallet.ImportOptions{Name: name, Mnemonic: mnemonic, Passphrase: passphrase})
 		if err != nil {
@@ -1279,4 +1301,11 @@ func returnMode(current *session) viewMode {
 		return modeWelcome
 	}
 	return modeHome
+}
+
+func walletModeLabel(readOnly bool) string {
+	if readOnly {
+		return "read-only"
+	}
+	return "read-write"
 }

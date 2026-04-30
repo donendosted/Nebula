@@ -17,9 +17,10 @@ import (
 
 // Store manages encrypted HD wallet roots and derived account metadata.
 type Store struct {
-	rootDir string
-	dbDir   string
-	db      *badger.DB
+	rootDir  string
+	dbDir    string
+	db       *badger.DB
+	readonly bool
 }
 
 // NewStore opens the default Nebula wallet database at ~/.nebula/wallet.db.
@@ -33,6 +34,24 @@ func NewStore() (*Store, error) {
 
 // NewStoreAt opens a Nebula wallet database rooted at rootDir.
 func NewStoreAt(rootDir string) (*Store, error) {
+	return newStoreAt(rootDir, false)
+}
+
+// NewReadOnlyStore opens the default Nebula wallet database in read-only mode.
+func NewReadOnlyStore() (*Store, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve home directory: %w", err)
+	}
+	return NewReadOnlyStoreAt(filepath.Join(home, defaultRootDirName))
+}
+
+// NewReadOnlyStoreAt opens a Nebula wallet database rooted at rootDir in read-only mode.
+func NewReadOnlyStoreAt(rootDir string) (*Store, error) {
+	return newStoreAt(rootDir, true)
+}
+
+func newStoreAt(rootDir string, readOnly bool) (*Store, error) {
 	dbDir := filepath.Join(rootDir, defaultWalletDBDirName)
 	if err := os.MkdirAll(rootDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create nebula directory: %w", err)
@@ -49,11 +68,12 @@ func NewStoreAt(rootDir string) (*Store, error) {
 	opts := badger.DefaultOptions(dbDir)
 	opts.Logger = nil
 	opts.ValueDir = dbDir
+	opts.ReadOnly = readOnly
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("open wallet db: %w", err)
 	}
-	return &Store{rootDir: rootDir, dbDir: dbDir, db: db}, nil
+	return &Store{rootDir: rootDir, dbDir: dbDir, db: db, readonly: readOnly}, nil
 }
 
 // Close releases database resources.
@@ -72,6 +92,11 @@ func (s *Store) RootDir() string {
 // DBDir returns the BadgerDB directory used for encrypted wallet state.
 func (s *Store) DBDir() string {
 	return s.dbDir
+}
+
+// ReadOnly reports whether the store was opened in read-only mode.
+func (s *Store) ReadOnly() bool {
+	return s != nil && s.readonly
 }
 
 // ProposalDir returns the directory used for multisig proposals.
@@ -107,6 +132,9 @@ func (s *Store) ImportWallet(opts ImportOptions) (WalletSummary, error) {
 }
 
 func (s *Store) createWallet(name, mnemonic, passphrase string) (WalletSummary, error) {
+	if s.ReadOnly() {
+		return WalletSummary{}, fmt.Errorf("wallet store is read-only")
+	}
 	normalized, err := NormalizeMnemonic(mnemonic)
 	if err != nil {
 		return WalletSummary{}, err
@@ -246,6 +274,9 @@ func (s *Store) CurrentNetwork() string {
 
 // SetNetwork persists the selected network string.
 func (s *Store) SetNetwork(network string) error {
+	if s.ReadOnly() {
+		return fmt.Errorf("wallet store is read-only")
+	}
 	cfg, err := s.Config()
 	if err != nil {
 		return err
@@ -267,6 +298,9 @@ func (s *Store) ToggleNetwork() (string, error) {
 
 // SetActiveWallet sets the selected wallet root and account index.
 func (s *Store) SetActiveWallet(walletID string, accountIndex uint32) error {
+	if s.ReadOnly() {
+		return fmt.Errorf("wallet store is read-only")
+	}
 	summary, err := s.Wallet(walletID)
 	if err != nil {
 		return err
@@ -304,6 +338,9 @@ func (s *Store) Wallet(id string) (WalletSummary, error) {
 
 // Derive persists a new account under an existing wallet root.
 func (s *Store) Derive(walletID string, passphrase string, index uint32, name string) (DerivedAccount, error) {
+	if s.ReadOnly() {
+		return DerivedAccount{}, fmt.Errorf("wallet store is read-only")
+	}
 	record, mnemonic, err := s.unlockWalletRecord(walletID, passphrase)
 	if err != nil {
 		return DerivedAccount{}, err

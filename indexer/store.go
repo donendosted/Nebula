@@ -19,9 +19,10 @@ import (
 
 // Store manages a local transaction cache and analytics indexes.
 type Store struct {
-	rootDir string
-	dbDir   string
-	db      *badger.DB
+	rootDir  string
+	dbDir    string
+	db       *badger.DB
+	readonly bool
 }
 
 // NewStore opens the default index database at ~/.nebula/index.db.
@@ -36,6 +37,15 @@ func NewStore() (*Store, error) {
 
 // NewStoreAt opens an index store at the provided db directory.
 func NewStoreAt(dbDir string) (*Store, error) {
+	return newStoreAt(dbDir, false)
+}
+
+// NewReadOnlyStoreAt opens an index store in read-only mode.
+func NewReadOnlyStoreAt(dbDir string) (*Store, error) {
+	return newStoreAt(dbDir, true)
+}
+
+func newStoreAt(dbDir string, readOnly bool) (*Store, error) {
 	rootDir := filepath.Dir(dbDir)
 	if err := os.MkdirAll(rootDir, 0o700); err != nil {
 		return nil, err
@@ -46,11 +56,12 @@ func NewStoreAt(dbDir string) (*Store, error) {
 	opts := badger.DefaultOptions(dbDir)
 	opts.Logger = nil
 	opts.ValueDir = dbDir
+	opts.ReadOnly = readOnly
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, fmt.Errorf("open index db: %w", err)
 	}
-	return &Store{rootDir: rootDir, dbDir: dbDir, db: db}, nil
+	return &Store{rootDir: rootDir, dbDir: dbDir, db: db, readonly: readOnly}, nil
 }
 
 // Close releases database resources.
@@ -66,8 +77,16 @@ func (s *Store) DBDir() string {
 	return s.dbDir
 }
 
+// ReadOnly reports whether the store was opened in read-only mode.
+func (s *Store) ReadOnly() bool {
+	return s != nil && s.readonly
+}
+
 // SyncAccount refreshes up to limit recent native payment records for one account.
 func (s *Store) SyncAccount(client *stellar.Client, account string, limit int) (int, error) {
+	if s.ReadOnly() {
+		return 0, fmt.Errorf("index store is read-only")
+	}
 	if limit <= 0 {
 		limit = maxSyncLimit
 	}
