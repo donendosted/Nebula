@@ -4,6 +4,15 @@
 
 Nebula is a security-focused Stellar wallet project for operators and developers.
 
+- Quick navigation for judges:
+  - [Metrics Dashboard](#metrics-dashboard)
+  - [Monitoring Dashboard](#monitoring-dashboard)
+  - [Security](#security)
+  - [Advanced Feature](#advanced-feature)
+  - [Data Indexing](#data-indexing)
+  - [Community Contribution](#community-contribution)
+  - [User Feedback](#user-feedback)
+
 - `nb`: scriptable Cobra CLI
 - `nbtui`: Bubble Tea terminal UI
 - `wallet/`: encrypted HD wallet storage and derivation
@@ -353,18 +362,18 @@ Nebula includes a built-in monitoring screen in `nbtui`.
 
 **Link: completed security checklist**
 
-- Local checklist: [security_checklist.md](/home/dos/project-nebula/codex/security_checklist.md:1)
-- Architecture reference: [ARCHITECTURE.md](/home/dos/project-nebula/codex/ARCHITECTURE.md:1)
+- Local checklist: [security_checklist.md](./security_checklist.md)
+- Architecture reference: [ARCHITECTURE.md](./ARCHITECTURE.md)
 - TODO: replace with a public hosted checklist link if you want an external submission-ready reference.
 
 Current security posture includes:
 
-- encrypted HD wallet storage with AES-256-GCM and scrypt in [wallet/crypto.go](/home/dos/project-nebula/codex/wallet/crypto.go:1)
-- no plaintext mnemonic persistence in [wallet/store.go](/home/dos/project-nebula/codex/wallet/store.go:17)
-- reserve-aware payment validation in [stellar/client.go](/home/dos/project-nebula/codex/stellar/client.go:112)
-- multisig threshold safety checks in [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:229)
-- proposal file permissions and local-only storage in [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:204)
-- read-only Badger access for TUI database safety in [internal/db/db.go](/home/dos/project-nebula/codex/internal/db/db.go:1)
+- encrypted HD wallet storage with AES-256-GCM and scrypt in [wallet/crypto.go](./wallet/crypto.go)
+- no plaintext mnemonic persistence in [wallet/store.go](./wallet/store.go)
+- reserve-aware payment validation in [stellar/client.go](./stellar/client.go)
+- multisig threshold safety checks in [multisig/service.go](./multisig/service.go)
+- proposal file permissions and local-only storage in [multisig/service.go](./multisig/service.go)
+- read-only Badger access for TUI database safety in [internal/db/db.go](./internal/db/db.go)
 
 Additional security items you can still add:
 
@@ -391,11 +400,11 @@ Nebula implements a Stellar multi-signature workflow for multi-party transaction
 
 **Proof of Implementation**
 
-- signer and threshold management: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:25)
-- unsigned proposal creation: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:97)
-- local signature attachment: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:138)
-- signed proposal submission: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:161)
-- safety validation against lockout-prone configs: [multisig/service.go](/home/dos/project-nebula/codex/multisig/service.go:229)
+- signer and threshold management: [multisig/service.go](./multisig/service.go)
+- unsigned proposal creation: [multisig/service.go](./multisig/service.go)
+- local signature attachment: [multisig/service.go](./multisig/service.go)
+- signed proposal submission: [multisig/service.go](./multisig/service.go)
+- safety validation against lockout-prone configs: [multisig/service.go](./multisig/service.go)
 
 ### Encrypted HD Wallet
 
@@ -403,8 +412,8 @@ Nebula also implements encrypted HD wallet storage with derived account persiste
 
 **Proof of Implementation**
 
-- encrypted mnemonic storage: [wallet/crypto.go](/home/dos/project-nebula/codex/wallet/crypto.go:1)
-- wallet database and account derivation persistence: [wallet/store.go](/home/dos/project-nebula/codex/wallet/store.go:17)
+- encrypted mnemonic storage: [wallet/crypto.go](./wallet/crypto.go)
+- wallet database and account derivation persistence: [wallet/store.go](./wallet/store.go)
 
 ## Data Indexing
 
@@ -423,8 +432,8 @@ This keeps common history and analytics queries local instead of repeatedly hitt
 
 **Proof of Implementation**
 
-- index storage and secondary indexes: [indexer/store.go](/home/dos/project-nebula/codex/indexer/store.go:17)
-- Horizon operation normalization: [indexer/ops.go](/home/dos/project-nebula/codex/indexer/ops.go:1)
+- index storage and secondary indexes: [indexer/store.go](./indexer/store.go)
+- Horizon operation normalization: [indexer/ops.go](./indexer/ops.go)
 
 **Endpoint or Dashboard Link (if applicable)**
 
@@ -434,6 +443,17 @@ This keeps common history and analytics queries local instead of repeatedly hitt
 ## Community Contribution
 
 [<img width="548" height="700" alt="image" src="https://github.com/user-attachments/assets/020ab201-9b3f-44ec-b772-935b7ba5f733" />](https://x.com/donendosted/status/2049906872879366517?s=20)
+
+## User Feedback
+
+Fill this table after collecting tester feedback.
+
+| Name | Email | Wallet Address | Feedback | Commit ID |
+|------|-------|----------------|----------|-----------|
+| TODO | TODO | TODO | TODO | TODO |
+| TODO | TODO | TODO | TODO | TODO |
+| TODO | TODO | TODO | TODO | TODO |
+| TODO | TODO | TODO | TODO | TODO |
 
 
 ## Release Flow
