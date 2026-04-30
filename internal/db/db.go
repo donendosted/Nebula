@@ -37,10 +37,16 @@ func OpenForTUI() (*Handles, error) {
 		walletReadOnly = true
 	}
 
-	indexStore, err := indexer.NewReadOnlyStoreAt(filepath.Join(walletStore.RootDir(), "index.db"))
+	indexDir := filepath.Join(walletStore.RootDir(), "index.db")
+	indexStore, err := indexer.NewReadOnlyStoreAt(indexDir)
 	if err != nil {
-		_ = walletStore.Close()
-		return nil, friendlyLockError(err, "index")
+		if IsMissingManifestError(err) {
+			indexStore, err = indexer.NewStoreAt(indexDir)
+		}
+		if err != nil {
+			_ = walletStore.Close()
+			return nil, friendlyLockError(err, "index")
+		}
 	}
 
 	return &Handles{
@@ -78,6 +84,14 @@ func IsLockError(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "cannot acquire directory lock")
+}
+
+// IsMissingManifestError reports whether a Badger directory has not been initialized yet.
+func IsMissingManifestError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "no manifest found")
 }
 
 func friendlyLockError(err error, target string) error {
