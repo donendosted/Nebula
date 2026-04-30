@@ -4,7 +4,7 @@
 
 Nebula is a local-first, security-focused Stellar wallet for operators, developers, and power users.
 
-- Quick navigation for judges:
+- Quick navigation:
   - [Metrics Dashboard](#metrics-dashboard)
   - [Monitoring Dashboard](#monitoring-dashboard)
   - [Security](#security)
@@ -59,6 +59,11 @@ Windows:
 .\nbtui.exe
 ```
 
+Fix for apple security bypass : 
+```# macOS fix
+xattr -d com.apple.quarantine nb nbtui
+```
+
 To install globally:
 
 Linux/macOS:
@@ -77,8 +82,8 @@ Windows:
 ### Build From Source
 
 ```bash
-git clone <your-repo-url>
-cd codex
+git clone https://github.com/donendosted/Nebula.git
+cd Nebula 
 go build -o nb ./cmd/nb
 go build -o nbtui ./cmd/nbtui
 ```
@@ -337,6 +342,19 @@ TUI monitoring:
 - the screen auto-refreshes every 5 seconds while open
 - press `H` or `?` to open the TUI actions help screen
 
+## User Feedback
+
+Fill this table as you collect tester feedback and link the implementation commits that addressed it.
+
+| Name | Email | Wallet Address | Feedback | Commit ID |
+|------|-------|----------------|----------|-----------|
+| Rupam Ghosh | rupamgh32@gmail.com | GC7XMPOXBDBJMPNQ5SQE2DTGACVSX4RHOUXE2XFF2SLHPDJNFGADTIHW | after creating one more wallet the previous wallet disappeared, please bring back my previous wallet, my testnet money[not hard earned] :') | ad6c495aeed1ff9e21610752889c46d0d3cabee5 |
+| Susho | sushobhanp59@gmail.com | GDBMOOICQXCNUTYH7XFZ2XCGR7GYLG5UKHG5VRMWEL3YZ255LXBHMV6L | I am facing some issue while running in macos | 163817cd5b4907a904e79743a2954c08929f5cb7 |
+| Aditya  | sahaaditya639@gmail.com | GCIIHXIXJW4VLXMSOAX2QJDTGIROJM7UIZLSFIFULV3C2MDQTFY3NN7C | It would have been great to monitor the transaction like how you proposed while in the idea to me | 5f3587d59885b494a969a40771715df80bb131be |
+| Ray | ishanray1.02@gmail.com | GDMMLMGYGSWQOGRC2OSUDZYCHQY7JO6TJV2KQSSMLWOWXSG6LNKIKJY6 | Bro there would be a guide for tui as well | 1d9b460f3a13da7caccd1173c331a4210660fa7c |
+| Taps | tapsedtzz@gmail.com | GAR7NJQ6QJJTXDABDQSPCFC6MC6A3XP6VD2Y6CTK4WRCIMDKIZX77QLF | The tui is really great but would love a gui interface | *working on it* | 
+
+
 ## Metrics Dashboard
 
 These charts are driven by Nebula's local metrics endpoint and a local Prometheus instance.
@@ -392,7 +410,7 @@ Additional security items you can still add:
 - security event logging for signer changes and proposal actions
 - memory zeroization for decrypted wallet material where practical
 
-## Advanced Feature
+## Advanced Features for Black Belt
 
 ### Multi-Signature Transaction Approval
 
@@ -453,18 +471,6 @@ This keeps history and analytics queries local instead of repeatedly hitting Hor
 Public project sharing:
 
 [<img width="548" height="700" alt="image" src="https://github.com/user-attachments/assets/020ab201-9b3f-44ec-b772-935b7ba5f733" />](https://x.com/donendosted/status/2049906872879366517?s=20)
-
-## User Feedback
-
-Fill this table as you collect tester feedback and link the implementation commits that addressed it.
-
-| Name | Email | Wallet Address | Feedback | Commit ID |
-|------|-------|----------------|----------|-----------|
-| TODO | TODO | TODO | TODO | TODO |
-| TODO | TODO | TODO | TODO | TODO |
-| TODO | TODO | TODO | TODO | TODO |
-| TODO | TODO | TODO | TODO | TODO |
-
 
 ## Release Flow
 
