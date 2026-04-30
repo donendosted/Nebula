@@ -8,10 +8,13 @@ Nebula is a local-first, security-focused Stellar wallet for operators, develope
 
 
 - Quick navigation:
+  - 
+  - [Architecture](#architecture)
+  - [SDK doc](#sdk-and-godoc)
+  - [Advanced Feature](#advanced-features-for-black-belt)
+  - [Security checklist](#security)
   - [Metrics Dashboard](#metrics-dashboard)
   - [Monitoring Dashboard](#monitoring-dashboard)
-  - [Security](#security)
-  - [Advanced Feature](#advanced-feature)
   - [Data Indexing](#data-indexing)
   - [Community Contribution](#community-contribution)
   - [User Feedback](#user-feedback)
@@ -37,6 +40,10 @@ Stellar accounts are operationally sensitive: signer weights, thresholds, reserv
 - `internal/monitoring/`: monitoring URLs and browser-open helpers
 - `internal/tui/`: Bubble Tea monitoring view helpers
 - `nebula/`: compatibility SDK used by the original wallet flows
+
+## DEMO
+
+https://github.com/user-attachments/assets/1172bdc5-9d0a-4165-814e-b6ac724e3a3b
 
 ## Download And Use
 
@@ -513,3 +520,6 @@ git push origin v0.1.0
 ```
 
 Download the latest release binaries from the GitHub Releases page.
+
+
+## Built for Stellar Journey to Mastery by [dos](https://github.com/donendosted)
